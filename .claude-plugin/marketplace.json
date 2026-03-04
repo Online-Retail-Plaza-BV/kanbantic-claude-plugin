@@ -1,11 +1,21 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "kanbantic",
   "description": "Kanbantic project management plugins for Claude Code",
+  "owner": {
+    "name": "Online Retail Plaza BV",
+    "email": "info@onlineretailplaza.com"
+  },
   "plugins": [
     {
       "name": "kanbantic-claude-plugin",
-      "path": ".",
-      "description": "Goal lifecycle skills: design, plan, execute, review, and debug — all artifacts via Kanbantic MCP"
+      "description": "Goal lifecycle skills: design, plan, execute, review, and debug — all artifacts via Kanbantic MCP",
+      "version": "1.0.0",
+      "author": {
+        "name": "Kanbantic"
+      },
+      "source": ".",
+      "category": "development"
     }
   ]
 }

@@ -1,3 +1,11 @@
 {
-  "hooks": {}
+  "hooks": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "bash \"$CLAUDE_PLUGIN_DIR/hooks/check-update.sh\"",
+        "timeout": 8000
+      }
+    ]
+  }
 }

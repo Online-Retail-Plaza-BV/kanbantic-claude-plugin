@@ -1,0 +1,11 @@
+{
+  "name": "kanbantic",
+  "description": "Kanbantic project management plugins for Claude Code",
+  "plugins": [
+    {
+      "name": "kanbantic-claude-plugin",
+      "path": ".",
+      "description": "Goal lifecycle skills: design, plan, execute, review, and debug — all artifacts via Kanbantic MCP"
+    }
+  ]
+}

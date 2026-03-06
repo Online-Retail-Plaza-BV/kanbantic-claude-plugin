@@ -1,7 +1,7 @@
 {
   "name": "kanbantic-claude-plugin",
   "description": "Kanbantic goal lifecycle skills: design, plan, execute, review, and debug — all artifacts via Kanbantic MCP",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "Kanbantic"
   },

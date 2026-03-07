@@ -1,13 +1,13 @@
 ---
 name: kanbantic-goal-design
-description: "Use when a new Goal, Feature, or Bug needs to be designed. Explores requirements through dialogue, then creates the goal with specifications and test cases in Kanbantic."
+description: "Use when a new Goal or Feature needs to be designed. Explores requirements through dialogue, then creates the goal with specifications and test cases in Kanbantic. For bugs, use /report-bug instead."
 ---
 
 # Kanbantic Goal Design
 
 ## Overview
 
-Design goals, features, and bugs through collaborative dialogue. All artifacts are created in Kanbantic via MCP — not in local files.
+Design goals and features through collaborative dialogue. All artifacts are created in Kanbantic via MCP — not in local files. For bugs, use `/report-bug` — it's faster and tailored to bug intake.
 
 **Principle:** Read from Kanbantic → Design with user → Write to Kanbantic.
 
@@ -92,7 +92,7 @@ If goal doesn't exist yet:
 ```
 MCP: mcp__kanbantic__create_goal(
   releaseId: <active release>,
-  type: "Feature" | "Bug" | "Goal",
+  type: "Feature" | "Goal",
   title: <title>,
   description: <full design description in Markdown>,
   priority: <priority>,

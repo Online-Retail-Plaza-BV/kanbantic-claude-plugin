@@ -6,7 +6,8 @@ Claude Code plugin for Kanbantic goal lifecycle management. All artifacts are cr
 
 | Skill | Command | Description |
 |-------|---------|-------------|
-| `kanbantic-goal-design` | `/design-goal` | Design a new goal, feature, or bug with specifications and test cases |
+| `kanbantic-goal-design` | `/design-goal` | Design a new goal or feature with specifications and test cases |
+| `kanbantic-bug-report` | `/report-bug` | Quick bug intake: what's broken, steps to reproduce, severity |
 | `kanbantic-goal-planning` | `/plan-goal` | Create implementation plan with phases, tasks, and code instructions |
 | `kanbantic-goal-executing` | `/execute-goal` | Execute implementation plan phase by phase with reviews |
 | `kanbantic-code-review` | *(auto)* | Review completed phase against specifications and test cases |
@@ -18,12 +19,15 @@ Claude Code plugin for Kanbantic goal lifecycle management. All artifacts are cr
 /design-goal → /plan-goal → /execute-goal
                                    ↓
                           code-review (per phase)
+
+/report-bug → /plan-goal or debugging
 ```
 
 1. **Design** — Collaborate on requirements → Creates Goal + Specs + Test Cases in Kanbantic
-2. **Plan** — Explore codebase → Creates Implementation Plan + Phases + Tasks + Code Instructions
-3. **Execute** — Implement phase by phase → Updates task status, commits code, requests review
-4. **Review** — Subagent reviews against specs → Approves or rejects phase with feedback
+2. **Report Bug** — Quick intake → Creates Bug goal with steps to reproduce
+3. **Plan** — Explore codebase → Creates Implementation Plan + Phases + Tasks + Code Instructions
+4. **Execute** — Implement phase by phase → Updates task status, commits code, requests review
+5. **Review** — Subagent reviews against specs → Approves or rejects phase with feedback
 
 ## Requirements
 

@@ -32,7 +32,25 @@ Claude Code plugin for Kanbantic goal lifecycle management. All artifacts are cr
 ## Requirements
 
 - [Claude Code](https://claude.ai/code) installed
-- A Kanbantic API key (format: `ka_{agent-name}_{random}`)
+- A Kanbantic API key (format: `ka_{agent-name}_{random}`) — request one from your workspace admin
+
+## Setup (before installing)
+
+The plugin authenticates via the `KANBANTIC_API_KEY` environment variable. Set it **once** as a persistent Windows User Environment Variable:
+
+1. Open **Control Panel → System → Advanced system settings → Environment Variables**
+2. Under **User variables**, click **New**
+3. Variable name: `KANBANTIC_API_KEY`
+4. Variable value: your API key (e.g. `ka_dev-yourname_abc123...`)
+5. Click **OK** and **restart your terminal**
+
+Verify:
+```powershell
+echo $env:KANBANTIC_API_KEY
+# should print your key
+```
+
+> **Important**: Do NOT use `/mcp` to connect to Kanbantic. The plugin bundles the MCP server configuration; a manual `/mcp` connection creates a duplicate that causes errors.
 
 ## Installation
 
@@ -42,32 +60,11 @@ Install via the Claude Code plugin marketplace:
 claude plugin install kanbantic-claude-plugin@kanbantic
 ```
 
-Or clone to local plugins directory:
+Or use the reinstall script for a clean install:
 
-```bash
-git clone https://github.com/Online-Retail-Plaza-BV/kanbantic-claude-plugin.git ~/.claude/plugins/local/kanbantic-claude-plugin
+```powershell
+.\reinstall-kanbantic-plugin.ps1
 ```
-
-## Setup
-
-The plugin bundles the Kanbantic MCP server configuration automatically — no separate `.mcp.json` needed.
-
-Set your API key as an environment variable:
-
-```bash
-# Linux / macOS
-export KANBANTIC_API_KEY="ka_your-agent_your-key"
-
-# Windows (PowerShell)
-$env:KANBANTIC_API_KEY = "ka_your-agent_your-key"
-
-# Windows (CMD)
-set KANBANTIC_API_KEY=ka_your-agent_your-key
-```
-
-To make it persistent, add the export to your shell profile (`~/.bashrc`, `~/.zshrc`, or Windows System Environment Variables).
-
-Request an API key from your Kanbantic workspace administrator.
 
 ## Principle
 

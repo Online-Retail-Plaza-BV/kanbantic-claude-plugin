@@ -1,8 +1,27 @@
 #!/usr/bin/env bash
-# Kanbantic Claude Plugin — auto-update checker
-# Runs on session start, checks GitHub for a newer plugin version.
+# Kanbantic Claude Plugin — session-start checks
+# 1. Verify KANBANTIC_API_KEY is set
+# 2. Check for plugin updates
 
 PLUGIN_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# ── 1. API key check ───────────────────────────────────────────────────
+# The plugin requires KANBANTIC_API_KEY as a Windows User Environment Variable.
+if [ -z "$KANBANTIC_API_KEY" ]; then
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "  KANBANTIC_API_KEY is not set"
+  echo ""
+  echo "  Set it in Windows:"
+  echo "    Control Panel > System > Advanced > Environment Variables"
+  echo "    Add User variable: KANBANTIC_API_KEY = ka_..."
+  echo ""
+  echo "  Then restart your terminal and Claude Code."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+fi
+
+# ── 2. Plugin update check ─────────────────────────────────────────────
 REMOTE_URL="https://raw.githubusercontent.com/Online-Retail-Plaza-BV/kanbantic-claude-plugin/main/plugin/.claude-plugin/plugin.json"
 
 # Read local version

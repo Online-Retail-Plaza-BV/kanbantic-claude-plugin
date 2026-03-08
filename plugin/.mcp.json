@@ -1,0 +1,9 @@
+{
+  "kanbantic": {
+    "type": "sse",
+    "url": "https://kanbantic.com/mcp",
+    "headers": {
+      "Authorization": "Bearer ${KANBANTIC_API_KEY}"
+    }
+  }
+}

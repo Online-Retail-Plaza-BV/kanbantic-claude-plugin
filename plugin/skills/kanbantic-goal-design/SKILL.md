@@ -41,14 +41,23 @@ Note the workspace ID, active releases, and applications — you'll need these w
 
 ## Step 2: Explore
 
-Read existing requirements and project conventions:
+Read existing requirements, project conventions, and architecture knowledge:
 
 ```
 MCP: mcp__kanbantic__list_specifications(workspaceId)
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "ClaudeMd")
+MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Pattern")
+MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Gotcha")
+MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Rule")
+MCP: mcp__kanbantic__list_library_documents(workspaceId, categoryType: "Architecture")
 ```
 
-Also explore the codebase if relevant (Glob, Grep, Read) to understand current architecture.
+Read relevant Library documents for architectural context:
+```
+MCP: mcp__kanbantic__read_library_document(documentId)  // for relevant architecture docs
+```
+
+Only explore the codebase directly (Glob, Grep, Read) for areas not covered by existing Toolkit/Library knowledge.
 
 ## Step 3: Clarify
 

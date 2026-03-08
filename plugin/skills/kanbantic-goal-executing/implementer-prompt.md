@@ -21,6 +21,12 @@ Agent tool (general-purpose):
     [PASTE the relevant section from the KnowledgeExtraction discussion entry.
      Include: file paths, code snippets, line numbers, build/test commands.]
 
+    ## Project Patterns (from Kanbantic Toolkit)
+
+    [PASTE relevant Toolkit items (patterns, gotchas, rules) from Step 2b.
+     Include items relevant to this task's domain (backend/frontend/MCP).
+     Example: ABP AppService pattern, Angular component pattern, EF migration gotchas.]
+
     ## Context
 
     [Brief architectural context: what this component does, how it fits,

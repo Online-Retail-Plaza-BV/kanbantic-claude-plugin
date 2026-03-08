@@ -36,6 +36,8 @@ Claude Code plugin for Kanbantic goal lifecycle management. All artifacts are cr
 
 ## Setup (before installing)
 
+### 1. Set your API key
+
 The plugin authenticates via the `KANBANTIC_API_KEY` environment variable. Set it **once** as a persistent Windows User Environment Variable:
 
 1. Open **Control Panel → System → Advanced system settings → Environment Variables**
@@ -50,20 +52,41 @@ echo $env:KANBANTIC_API_KEY
 # should print your key
 ```
 
-> **Important**: Do NOT use `/mcp` to connect to Kanbantic. The plugin bundles the MCP server configuration; a manual `/mcp` connection creates a duplicate that causes errors.
+### 2. Configure the MCP server
+
+The MCP server connection must be configured in your project's `.claude/mcp.json` file. Add this configuration:
+
+```json
+{
+  "mcpServers": {
+    "kanbantic": {
+      "type": "http",
+      "url": "https://kanbantic.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${KANBANTIC_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+> **Note**: The MCP config is placed in `.claude/mcp.json` (not bundled in the plugin) because Claude Code's HTTP transport requires project-level configuration for reliable environment variable expansion and header injection. The reinstall script handles this automatically.
+
+> **Important**: Do NOT use `/mcp` to manually connect to Kanbantic. The project-level config handles it.
 
 ## Installation
 
-Install via the Claude Code plugin marketplace:
-
-```bash
-claude plugin install kanbantic-claude-plugin@kanbantic
-```
-
-Or use the reinstall script for a clean install:
+**Recommended**: Use the reinstall script for a clean install (handles everything automatically):
 
 ```powershell
 .\reinstall-kanbantic-plugin.ps1
+```
+
+Or install manually via the Claude Code plugin marketplace:
+
+```bash
+claude plugin install kanbantic-claude-plugin@kanbantic
+# Then add the MCP config above to your project's .claude/mcp.json
 ```
 
 ## Principle

@@ -112,19 +112,279 @@ Moved MCP server configuration from plugin `.mcp.json` (flat format) to project-
 - Updated README: MCP config is now in project `.claude/mcp.json`, managed by reinstall script
 
 **2. Reinstall script changes** (`reinstall-kanbantic-plugin.ps1`):
-- Step 11d (NEW): Writes MCP config to project `.claude/mcp.json` for all projects with plugin enabled:
+- Step 11d (NEW): Writes MCP config to project-root `.mcp.json` for all projects with plugin enabled:
   ```json
   { "mcpServers": { "kanbantic": { "type": "http", "url": "https://kanbantic.com/mcp", "headers": { "Authorization": "Bearer ${KANBANTIC_API_KEY}" } } } }
   ```
+  **Note:** Initially wrote to `.claude/mcp.json` — later discovered this is the wrong location. See "2026-03-09: MCP config in wrong location" entry below.
 - Step 11e (NEW): Removes `.mcp.json` from plugin cache (safety net for old plugin versions)
-- Step 12d (CHANGED): Validates project `.claude/mcp.json` instead of plugin `.mcp.json`
-- Step 12f (CHANGED): Only flags repo-level `.mcp.json` and global settings as conflicts (project `.claude/mcp.json` is now expected)
+- Step 12d (CHANGED): Validates project-root `.mcp.json` instead of plugin `.mcp.json`
+- Step 12f (CHANGED): Excludes expected project-root `.mcp.json` files from conflict detection
 
-**3. Kanbantic repo** (`.claude/mcp.json`):
-- Updated from empty `{ "mcpServers": {} }` to include kanbantic MCP server config
+**3. Kanbantic repo** (`.mcp.json` at project root):
+- Created project-root `.mcp.json` with kanbantic MCP server config
 
-### Why project-level `.claude/mcp.json` works but plugin `.mcp.json` doesn't
-- Project `.claude/mcp.json` is loaded early in Claude Code's config chain and headers are attached to all HTTP requests from the start
+### Why project-root `.mcp.json` works but plugin `.mcp.json` doesn't
+- Project-root `.mcp.json` is loaded early in Claude Code's config chain and headers are attached to all HTTP requests from the start
 - Plugin `.mcp.json` may be processed differently — the HTTP transport client may attempt discovery before applying plugin-provided headers
 - The `${KANBANTIC_API_KEY}` env var expansion works identically in both locations
 - The `mcpServers` wrapped format (project) vs flat format (plugin) may also affect header handling
+- **Important:** The correct location is `.mcp.json` at the project root, NOT `.claude/mcp.json`. See "2026-03-09: MCP config in wrong location" entry below.
+
+## 2026-03-09: MCP tools not found on fresh laptop after plugin install
+
+### Symptom
+After running `reinstall-kanbantic-plugin.ps1` on a new laptop, Claude Code shows the plugin as enabled but the MCP server does not appear in the "Manage MCP servers" list. Claude Code says: *"Ik kan geen Kanbantic MCP-tools vinden om direct goals op te vragen."*
+
+Plugin status: `kanbantic-claude-plugin Plugin · kanbantic · √ enabled`
+MCP servers: only shows `kie-ai`, `claude.ai Gmail`, `claude.ai Google Calendar` — no kanbantic.
+
+### Diagnosis
+1. Plugin is installed and enabled correctly in global settings ✓
+2. `KANBANTIC_API_KEY` is set as persistent User variable ✓
+3. Reinstall script completed "All checks passed!" ✓
+4. BUT: the script only wrote MCP config to known projects (e.g., `D:\github\WpManagementStudio`)
+5. The user ran Claude Code from `D:\GitHub\kanbantic-client` — a **different project**
+6. `kanbantic-client` had no `.mcp.json` at its project root
+7. MCP servers configured in `.mcp.json` are **project-scoped** — they only appear when Claude Code runs in that project directory
+
+### Root Cause
+**Reinstall script only writes MCP config to projects it already knows about.**
+
+Step 11d of the script iterates `$projectSettingsPost`, which is built by scanning known code directories (`C:\github`, `D:\github`, etc.) for existing `.claude/settings.json` files. A fresh project that has never had the plugin enabled doesn't have `.claude/settings.json`, so the script skips it entirely.
+
+Flow:
+1. Script scans for `.claude/settings.json` files in known code directories
+2. Finds `WpManagementStudio` (has existing settings) → writes MCP config ✓
+3. `kanbantic-client` has no `.claude/` directory → not found → skipped ✗
+4. User opens Claude Code in `kanbantic-client` → no `.mcp.json` at project root → no MCP server
+
+### Fix
+Updated `reinstall-kanbantic-plugin.ps1` step 11c to also include the **current working directory** (`$PWD`) as a target project. After building `$projectSettingsPost` from known directories, the script now:
+
+1. Checks if `$PWD` is a git repo (has `.git` directory)
+2. If `.claude/` directory doesn't exist → creates it
+3. If `.claude/settings.json` doesn't exist → creates it with `enabledPlugins` containing the kanbantic plugin
+4. Adds the path to `$projectSettingsPost` so step 11d automatically writes the MCP config
+
+```powershell
+# Also include the current working directory if it's a git repo (handles new/fresh projects)
+$cwdClaudeDir = Join-Path $PWD '.claude'
+$cwdSettingsFile = Join-Path $cwdClaudeDir 'settings.json'
+if ((Test-Path (Join-Path $PWD '.git')) -and ($projectSettingsPost -notcontains $cwdSettingsFile)) {
+    if (-not (Test-Path $cwdClaudeDir)) {
+        New-Item -ItemType Directory -Path $cwdClaudeDir -Force | Out-Null
+    }
+    if (-not (Test-Path $cwdSettingsFile)) {
+        $newSettings = [ordered]@{ enabledPlugins = [ordered]@{ $pluginId = $true } }
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($cwdSettingsFile, ($newSettings | ConvertTo-Json -Depth 10), $utf8NoBom)
+    }
+    $projectSettingsPost += $cwdSettingsFile
+}
+```
+
+**Expected output on fresh project after fix:**
+```
+> Add kanbantic to project-level enabledPlugins
+  [OK] Created .claude/settings.json in current project (kanbantic-client)
+
+> Write MCP server config to project root .mcp.json
+  [OK] Created .mcp.json in kanbantic-client -> D:\github\kanbantic-client\.mcp.json
+
+> Post-install validation
+  [OK] MCP server config in .mcp.json (kanbantic-client)
+```
+
+### Lesson learned
+The reinstall script must always include the **current working directory** as a target, regardless of whether it was previously known. Users typically `cd` into a project directory before running the script, so `$PWD` is the most important target.
+
+## 2026-03-09: Claude Desktop app cannot connect to MCP server
+
+### Symptom
+When using the Claude Desktop app (Windows) and asking about Kanbantic goals, Claude responds: *"De pagina https://kanbantic.com/mcp geeft een fout — hij bestaat niet of is nog niet live."*
+
+### Diagnosis
+1. The MCP server at `https://kanbantic.com/mcp` uses **Streamable HTTP** transport (`MapMcp("/mcp")` in `src/Kanbantic.Mcp/Program.cs` line 155)
+2. Streamable HTTP only accepts **POST** requests with JSON-RPC payloads
+3. A GET request to `/mcp` returns 404/405 — the endpoint does not serve web pages
+4. Claude Desktop (the AI in the desktop app) is trying to fetch the URL as a webpage, not connecting via MCP protocol
+5. The MCP server is NOT configured in Claude Desktop — only the Claude Code plugin was installed
+
+### Root Cause
+**Claude Desktop app requires separate MCP server configuration** in `%APPDATA%\Claude\claude_desktop_config.json`. The plugin installation only configures Claude Code (CLI), not Claude Desktop.
+
+When no MCP server is configured, Claude (the AI) interprets the URL as a webpage and tries to fetch it with a GET request, which fails because the server only handles POST.
+
+### Fix
+Create or edit `%APPDATA%\Claude\claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "kanbantic": {
+      "type": "http",
+      "url": "https://kanbantic.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ka_your-agent_your-key"
+      }
+    }
+  }
+}
+```
+
+**Important caveats:**
+- Claude Desktop may not support `${ENV_VAR}` expansion — use the literal API key value
+- Claude Desktop's HTTP MCP client may have the same probe-without-headers behavior as plugin-bundled configs (see 2026-03-09 entry above). If so, Claude Desktop would also fail to authenticate.
+- After saving, restart Claude Desktop for changes to take effect
+- **Not yet verified** — as of 2026-03-09, Claude Desktop compatibility with the Kanbantic MCP server has not been confirmed
+
+### Architecture reference
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ MCP Server: https://kanbantic.com/mcp                               │
+│ Transport: Streamable HTTP (POST only, JSON-RPC)                    │
+│ Auth: Bearer token (pre-shared API key, format: ka_name_random)     │
+│ Backend: .NET ModelContextProtocol SDK, MapMcp("/mcp")              │
+│ No OAuth/OIDC endpoints (all disabled to prevent Claude Code        │
+│ from entering OAuth mode instead of using static Bearer tokens)     │
+└─────────────────────────────────────────────────────────────────────┘
+         ▲                              ▲
+         │                              │
+    Works ✓                      Not yet verified
+         │                              │
+┌────────┴─────────┐          ┌────────┴──────────┐
+│ Claude Code CLI  │          │ Claude Desktop App│
+│                  │          │                    │
+│ Config location: │          │ Config location:   │
+│ .mcp.json        │          │ %APPDATA%\Claude\  │
+│ (project root)   │          │ claude_desktop_    │
+│                  │          │ config.json        │
+│ Env var: ✓       │          │                    │
+│ ${VAR} expansion │          │ Env var: ✗ (maybe) │
+│                  │          │ Use literal key    │
+│ Created by:      │          │                    │
+│ reinstall script │          │ Created by:        │
+│ (step 11d)       │          │ manual only        │
+└──────────────────┘          └────────────────────┘
+```
+
+## Reference: Complete MCP configuration chain
+
+### Where MCP servers can be configured (in priority order)
+
+| Location | Format | Scope | Headers sent? | Env var expansion? |
+|----------|--------|-------|---------------|--------------------|
+| `.mcp.json` (project root) | `{ "mcpServers": { ... } }` | Per project | ✓ Always | ✓ `${VAR}` |
+| `~/.claude/settings.json` mcpServers | `{ "mcpServers": { ... } }` | Global | ✓ Always | ✓ `${VAR}` |
+| `.claude/mcp.json` (WRONG) | `{ "mcpServers": { ... } }` | NOT read | ✗ N/A | N/A |
+| Plugin `.mcp.json` (bundled) | `{ "name": { ... } }` (flat) | Per plugin | ✗ Unreliable | ✓ `${VAR}` |
+| `~/.claude.json` (legacy) | `{ "mcpServers": { ... } }` | Global | ✓ | ✓ `${VAR}` |
+| `%APPDATA%\Claude\claude_desktop_config.json` | `{ "mcpServers": { ... } }` | Desktop app | ? Unknown | ? Unknown |
+
+**Rule: Always use project-root `.mcp.json` for Kanbantic.** NOT `.claude/mcp.json` (wrong location). Plugin-bundled configs do not reliably send Bearer tokens. Use `claude mcp add --scope project` to verify the correct location.
+
+### Reinstall script step reference
+
+| Step | What it does | Key files |
+|------|-------------|-----------|
+| 1 | Pre-flight: validate `KANBANTIC_API_KEY` | Windows User env var |
+| 2-5 | Cleanup: remove all plugin/marketplace traces | `~/.claude/plugins/` |
+| 6 | Cleanup: remove `enabledPlugins` entries | `.claude/settings.json` in all projects |
+| 7 | Cleanup: remove OAuth credentials | `~/.claude/.credentials.json` |
+| 8 | Cleanup: remove MCP server configs | `~/.claude/projects/*/settings.json`, global settings |
+| 9 | Cleanup: remove repo-level `.mcp.json` and stale `.claude/mcp.json` | All git repos in known dirs |
+| 10 | Cleanup: remove backup files | `~/.claude/backups/` |
+| 11a | Install: add marketplace | `git@github.com:Online-Retail-Plaza-BV/kanbantic-claude-plugin.git` |
+| 11b | Install: install plugin | `kanbantic-claude-plugin@kanbantic` |
+| 11c | Config: add to `enabledPlugins` + include current directory | `.claude/settings.json` per project |
+| 11d | Config: write MCP server config | `.mcp.json` at project root |
+| 11e | Cleanup: remove plugin-bundled `.mcp.json` | Plugin cache |
+| 12a-g | Validation: 7 checks | Plugin cache, registry, settings, MCP config, OAuth, conflicts, API key |
+
+### Troubleshooting checklist
+
+When MCP tools are not found after installation, check in this order:
+
+1. **`KANBANTIC_API_KEY`** — set as Windows User env var, starts with `ka_`
+2. **`.mcp.json`** — exists at the **project root** (NOT `.claude/mcp.json`) with `type: "http"`
+3. **`.claude/settings.json`** — has `enabledPlugins` with `kanbantic-claude-plugin@kanbantic: true`
+4. **No stale OAuth** — `~/.claude/.credentials.json` has no kanbantic entries in `mcpOAuth`
+5. **No duplicate configs** — no global `mcpServers` with kanbantic
+6. **No plugin `.mcp.json`** — `~/.claude/plugins/cache/kanbantic/` should NOT contain `.mcp.json`
+7. **No stale `.claude/mcp.json`** — project `.claude/mcp.json` should NOT have kanbantic entries (wrong location)
+8. **Server reachable** — `curl -X POST https://kanbantic.com/mcp -H "Authorization: Bearer $KEY"` returns 200
+9. **Restart Claude Code** — MCP config changes require a restart to take effect
+
+## 2026-03-09: MCP config in wrong location — .mcp.json must be at project root
+
+### Symptom
+After running `reinstall-kanbantic-plugin.ps1` on a fresh project, the script reports success and creates `.claude/mcp.json` with the correct config. BUT `claude mcp list` shows no kanbantic server, and MCP tools are not available.
+
+### Diagnosis
+1. Script output shows: `[OK] Created mcp.json in test -> C:\github\test\.claude\mcp.json`
+2. The file exists with correct content (type: http, Bearer token, URL)
+3. Claude Code's `/mcp` command shows NO kanbantic server
+4. Running `claude mcp add kanbantic --transport http --url https://kanbantic.com/mcp --header "Authorization: Bearer ${KANBANTIC_API_KEY}" --scope project` **does** work
+5. After `claude mcp add`, the file `.mcp.json` appears at the **project root** (not in `.claude/`)
+6. `claude mcp list` now shows: `kanbantic: https://kanbantic.com/mcp (HTTP) - ✓ Connected`
+
+### Root Cause
+**Claude Code reads project-scoped MCP server configs from `.mcp.json` at the project root, NOT from `.claude/mcp.json`.**
+
+The reinstall script was writing to `.claude/mcp.json` (inside the `.claude/` directory). This is the wrong location. Claude Code's `claude mcp add --scope project` creates `.mcp.json` at the project root — that's the authoritative location.
+
+Both files use the same JSON format:
+```json
+{ "mcpServers": { "kanbantic": { "type": "http", "url": "...", "headers": { ... } } } }
+```
+
+But only the project-root `.mcp.json` is read by Claude Code.
+
+### Fix
+Updated `reinstall-kanbantic-plugin.ps1`:
+
+**Step 11d** — changed target from `.claude/mcp.json` to project-root `.mcp.json`:
+```powershell
+# Before (WRONG):
+$mcpFile = Join-Path $claudeDir 'mcp.json'     # .claude/mcp.json
+
+# After (CORRECT):
+$claudeDir = Split-Path $settingsFile           # .claude/
+$projectRoot = Split-Path $claudeDir            # project root
+$mcpFile = Join-Path $projectRoot '.mcp.json'   # project/.mcp.json
+```
+
+**Step 9b** — updated comment to clarify `.claude/mcp.json` is now a stale/cleanup location
+
+**Step 12d** — validation already correct (was already checking project-root `.mcp.json`)
+
+**Step 12f** — fixed false positives: build exclusion list of expected project-root `.mcp.json` files so validation doesn't flag our own created files as "conflicting"
+
+### Three PowerShell gotchas also fixed in this session
+
+1. **`Select-Object -Unique` returns string, not array, for single result** — `$array += $string` does string concatenation instead of array append. Fix: wrap with `@()`:
+   ```powershell
+   $projectSettingsPost = @($projectSettingsPost | Where-Object ... | Select-Object -Unique)
+   ```
+
+2. **`Get-ChildItem -Recurse` without `-Depth` scans into `node_modules`** — causes script to hang for minutes scanning 100K+ files. Fix: add `-Depth 3` (or `-Depth 4` for `.claude/mcp.json` pattern):
+   ```powershell
+   Get-ChildItem -Path $codeDir -Filter 'settings.json' -Recurse -Depth 3
+   ```
+
+3. **`.git` directory check too restrictive for `$PWD`** — fresh projects or non-git-repo projects were skipped. Fix: removed `.git` requirement for the current working directory inclusion.
+
+### Verified
+Tested end-to-end in clean `C:\github\test\` directory:
+```
+> Write MCP server config to project root .mcp.json
+  [OK] Created .mcp.json in test -> C:\github\test\.mcp.json
+
+> Post-install validation
+  [OK] MCP server config in .mcp.json (test)
+  [OK] No conflicting MCP server configs
+```
+
+`claude mcp list` output: `kanbantic: https://kanbantic.com/mcp (HTTP) - ✓ Connected`

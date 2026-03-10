@@ -1,11 +1,7 @@
 {
   "name": "kanbantic-claude-plugin",
   "description": "Kanbantic goal lifecycle skills: design, report bugs, plan, execute, review, and debug — all artifacts via Kanbantic MCP",
-  "version": "1.7.1",
   "author": {
     "name": "Kanbantic"
-  },
-  "license": "MIT",
-  "keywords": ["kanbantic", "goals", "planning", "mcp", "project-management"],
-  "mcpServers": "./.mcp.json"
+  }
 }

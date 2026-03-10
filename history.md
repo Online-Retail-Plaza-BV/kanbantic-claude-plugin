@@ -303,6 +303,46 @@ Create or edit `%APPDATA%\Claude\claude_desktop_config.json`:
 | 11e | Cleanup: remove plugin-bundled `.mcp.json` | Plugin cache |
 | 12a-g | Validation: 7 checks | Plugin cache, registry, settings, MCP config, OAuth, conflicts, API key |
 
+## 2026-03-10: Re-added `.mcp.json` to plugin (v1.7.0)
+
+### Context
+Comparison of the working Playwright plugin with the non-working Kanbantic plugin revealed the key structural difference: Playwright bundles a `.mcp.json` in its plugin directory that auto-configures the MCP server on install. The Kanbantic plugin (since v1.6.0) relied solely on the reinstall script to write project-root `.mcp.json` files, making installation fragile and multi-step.
+
+### Changes (v1.7.0)
+1. **Added `plugin/.mcp.json`** — bundles MCP server config directly in the plugin:
+   ```json
+   {
+     "kanbantic": {
+       "type": "http",
+       "url": "https://kanbantic.com/mcp",
+       "headers": {
+         "Authorization": "Bearer ${KANBANTIC_API_KEY}"
+       }
+     }
+   }
+   ```
+   This matches the Playwright plugin pattern: `{ "name": { "type": "...", ... } }` (flat format).
+
+2. **Bumped version** to 1.7.0 in both `plugin/.claude-plugin/plugin.json` and `marketplace.json`.
+
+### How it works
+- Claude Code reads plugin-bundled `.mcp.json` and registers the MCP server automatically on install
+- `${KANBANTIC_API_KEY}` is expanded from environment variables at runtime
+- The `headers` field attaches `Authorization: Bearer <key>` to all HTTP requests
+- User only needs to set `KANBANTIC_API_KEY` env var before installing the plugin
+
+### Comparison with Playwright plugin
+
+| Aspect | Playwright | Kanbantic (v1.7.0) |
+|--------|-----------|-------------------|
+| `.mcp.json` | `{"playwright": {"command": "npx", "args": [...]}}` | `{"kanbantic": {"type": "http", "url": "...", "headers": {...}}}` |
+| Transport | stdio (local process) | HTTP (remote server) |
+| Auth | None needed | Bearer token from `${KANBANTIC_API_KEY}` |
+| User setup | None | Set `KANBANTIC_API_KEY` env var |
+
+### Known caveat
+Previous v1.5.0 testing (see entries above) found that plugin-bundled `.mcp.json` with HTTP transport did not reliably send Bearer headers — Claude Code's HTTP client would probe without headers first, get 401, and enter OAuth flow. This was **before** all OAuth discovery endpoints were removed from the server (v1.6.0 fix). With OAuth endpoints now returning 404, the client should fall back to using the configured headers. If issues persist, the reinstall script still writes project-root `.mcp.json` as a backup path.
+
 ### Troubleshooting checklist
 
 When MCP tools are not found after installation, check in this order:

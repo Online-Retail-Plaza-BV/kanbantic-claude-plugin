@@ -48,6 +48,7 @@ The information you need:
 | Expected vs actual | Yes | "Expected: 5 tasks. Actual: shows 0" |
 | Severity | No | Critical / High / Medium / Low |
 | URL or screenshot | No | "https://kanbantic.com/dashboard" |
+| Which workspace | No | Auto-detect from context; ask if multiple workspaces exist |
 | Which application | No | Auto-detect from context if possible |
 
 Use `AskUserQuestion` with options where useful. For severity, offer:
@@ -85,7 +86,8 @@ Wait for user confirmation before persisting.
 Format the description as structured Markdown with bug details:
 
 ```
-MCP: mcp__kanbantic__create_goal(
+MCP: mcp__kanbantic__create_issue(
+  workspaceId: <workspace ID — REQUIRED to ensure correct workspace>,
   releaseId: <active release>,
   type: "Bug",
   title: <concise bug title>,

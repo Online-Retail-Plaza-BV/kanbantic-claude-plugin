@@ -99,9 +99,10 @@ After user approves the complete design:
 
 If goal doesn't exist yet:
 ```
-MCP: mcp__kanbantic__create_goal(
+MCP: mcp__kanbantic__create_issue(
+  workspaceId: <workspace ID — REQUIRED to ensure correct workspace>,
   releaseId: <active release>,
-  type: "Feature" | "Goal",
+  type: "Feature" | "Epic",
   title: <title>,
   description: <full design description in Markdown>,
   priority: <priority>,
@@ -112,7 +113,7 @@ MCP: mcp__kanbantic__create_goal(
 
 If goal already exists:
 ```
-MCP: mcp__kanbantic__update_goal(goalId, description: <updated description>)
+MCP: mcp__kanbantic__update_issue(issueId, description: <updated description>)
 ```
 
 ### 6b: Create Specifications

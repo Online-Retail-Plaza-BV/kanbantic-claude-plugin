@@ -1,9 +1,9 @@
 ---
-name: kanbantic-goal-executing
-description: "Use when an implementation plan in Kanbantic needs to be executed. Claims the goal, works through phases and tasks, requests review between phases."
+name: kanbantic-issue-executing
+description: "Use when an implementation plan in Kanbantic needs to be executed. Claims the issue, works through phases and tasks, requests review between phases."
 ---
 
-# Kanbantic Goal Executing
+# Kanbantic Issue Executing
 
 ## Overview
 
@@ -11,27 +11,27 @@ Execute an implementation plan from Kanbantic phase by phase. Each phase gets re
 
 **Principle:** Read plan + knowledge from Kanbantic → Implement code → Update status + knowledge in Kanbantic.
 
-**Announce at start:** "I'm using the kanbantic-goal-executing skill to execute this implementation plan."
+**Announce at start:** "I'm using the kanbantic-issue-executing skill to execute this implementation plan."
 
 ## Checklist
 
-1. **Claim goal** — set status to InProgress, record branch
+1. **Claim issue** — set status to InProgress, record branch
 2. **Load plan + knowledge** — get phases, tasks, AND project patterns from Kanbantic
 3. **Per phase** — execute tasks, mark for review, get approval
 4. **Update knowledge** — store corrections or new discoveries in Toolkit/Library
-5. **Complete** — set goal status to Review
+5. **Complete** — set issue status to Review
 
-## Step 1: Claim Goal
+## Step 1: Claim Issue
 
 ```
-MCP: mcp__kanbantic__claim_goal(goalId, branch: "<branch-name>")
+MCP: mcp__kanbantic__claim_issue(issueId, branch: "<branch-name>")
 ```
 
-Branch naming: `feature/<goal-code>-<short-description>` or `fix/<goal-code>-<short-description>`.
+Branch naming: `feature/<issue-code>-<short-description>` or `fix/<issue-code>-<short-description>`.
 
 Create the branch locally:
 ```bash
-git checkout -b feature/<goal-code>-<description>
+git checkout -b feature/<issue-code>-<description>
 ```
 
 ## Step 2: Load Implementation Plan + Project Knowledge
@@ -39,9 +39,9 @@ git checkout -b feature/<goal-code>-<description>
 ### 2a: Load Plan from Kanbantic
 
 ```
-MCP: mcp__kanbantic__get_implementation_plan(goalId)
-MCP: mcp__kanbantic__list_goal_tasks(goalId)
-MCP: mcp__kanbantic__list_discussion_entries(goalId)
+MCP: mcp__kanbantic__get_implementation_plan(issueId)
+MCP: mcp__kanbantic__list_tasks(issueId)
+MCP: mcp__kanbantic__list_discussion_entries(issueId)
 ```
 
 Read:
@@ -59,7 +59,7 @@ MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Gotcha")
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Rule")
 ```
 
-Optionally, if this goal touches architectural areas, read relevant Library documents:
+Optionally, if this issue touches architectural areas, read relevant Library documents:
 ```
 MCP: mcp__kanbantic__list_library_documents(workspaceId, categoryType: "Architecture")
 MCP: mcp__kanbantic__read_library_document(documentId)  // for relevant docs
@@ -79,7 +79,7 @@ For each unlocked phase:
 
 First phase is auto-unlocked. Subsequent phases unlock after the previous is approved:
 ```
-MCP: mcp__kanbantic__unlock_phase(goalId, phaseId)
+MCP: mcp__kanbantic__unlock_phase(issueId, phaseId)
 ```
 
 ### 3b: Execute Tasks
@@ -88,7 +88,7 @@ For each task in the phase:
 
 **Start:**
 ```
-MCP: mcp__kanbantic__update_goal_task_status(goalId, taskId, status: "InProgress")
+MCP: mcp__kanbantic__update_task_status(issueId, taskId, status: "InProgress")
 ```
 
 **Implement:**
@@ -99,9 +99,9 @@ MCP: mcp__kanbantic__update_goal_task_status(goalId, taskId, status: "InProgress
 
 **Complete:**
 ```
-MCP: mcp__kanbantic__update_goal_task_status(goalId, taskId, status: "Done")
+MCP: mcp__kanbantic__update_task_status(issueId, taskId, status: "Done")
 MCP: mcp__kanbantic__add_discussion_entry(
-  goalId,
+  issueId,
   content: "**Task [title] completed.**\n\nChanges:\n- [files changed]\n\nVerification:\n- [build/test results]",
   entryType: "Comment"
 )
@@ -110,14 +110,14 @@ MCP: mcp__kanbantic__add_discussion_entry(
 **Commit after each task or logical group:**
 ```bash
 git add <specific files>
-git commit -m "feat(<goal-code>): <task description>"
+git commit -m "feat(<issue-code>): <task description>"
 ```
 
 ### 3c: Mark Phase for Review
 
 After all tasks in the phase are Done:
 ```
-MCP: mcp__kanbantic__mark_phase_for_review(goalId, phaseId)
+MCP: mcp__kanbantic__mark_phase_for_review(issueId, phaseId)
 ```
 
 ### 3d: Request Code Review
@@ -163,7 +163,7 @@ MCP: mcp__kanbantic__update_toolkit_item(id, title, content, isActive: false)
 ```
 
 **Guidelines:**
-- Only store patterns reusable across multiple goals
+- Only store patterns reusable across multiple issues
 - Include file paths and code examples in every Toolkit item
 - Update rather than duplicate — search existing items first
 - Skip this step if nothing new was discovered (don't force it)
@@ -174,7 +174,7 @@ Add a discussion entry documenting which Toolkit/Library items were consumed dur
 
 ```
 MCP: mcp__kanbantic__add_discussion_entry(
-  goalId: <id>,
+  issueId: <id>,
   content: <knowledge summary>,
   entryType: "KnowledgeExtraction"
 )
@@ -199,23 +199,23 @@ Use this template:
 (Use this line instead if nothing was consumed, produced, or corrected)
 ```
 
-This creates traceability between the goal and knowledge base — visible in the goal's discussion timeline in the Kanbantic UI.
+This creates traceability between the issue and knowledge base — visible in the issue's discussion timeline in the Kanbantic UI.
 
-## Step 5: Complete Goal
+## Step 5: Complete Issue
 
 After all phases are approved:
 ```
-MCP: mcp__kanbantic__update_goal_status(goalId, status: "Review")
+MCP: mcp__kanbantic__update_issue_status(issueId, status: "Review")
 ```
 
 Report:
-**"Implementation complete for [GOAL CODE]. All [N] phases approved. Goal status: Review.**
+**"Implementation complete for [ISSUE CODE]. All [N] phases approved. Issue status: Review.**
 
 **Summary:**
 - [N] tasks completed
 - [N] commits
 - Knowledge: [N] Toolkit items created/updated (if any)
-- Branch: `feature/<goal-code>-<description>`
+- Branch: `feature/<issue-code>-<description>`
 
 **Next:** Push branch and create PR, or mark as Done if no PR needed."
 

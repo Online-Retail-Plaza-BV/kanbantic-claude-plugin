@@ -6,11 +6,11 @@ Use this template when dispatching a subagent to implement a single task from a 
 Agent tool (general-purpose):
   description: "Implement Task: [task title]"
   prompt: |
-    You are implementing a task from a Kanbantic goal.
+    You are implementing a task from a Kanbantic issue.
 
-    ## Goal
-    Code: [GOAL CODE]
-    Title: [GOAL TITLE]
+    ## Issue
+    Code: [ISSUE CODE]
+    Title: [ISSUE TITLE]
 
     ## Task
     Title: [TASK TITLE]
@@ -41,7 +41,7 @@ Agent tool (general-purpose):
 
     1. Implement exactly what the code instructions specify
     2. Run build/test commands to verify
-    3. Commit your work with message: "feat([GOAL CODE]): [task description]"
+    3. Commit your work with message: "feat([ISSUE CODE]): [task description]"
     4. Self-review (see below)
     5. Report back
 
@@ -72,10 +72,10 @@ Agent tool (general-purpose):
 
 When using this template:
 
-1. Get task details from Kanbantic: `mcp__kanbantic__list_goal_tasks(goalId)`
-2. Get code instructions from discussion: `mcp__kanbantic__list_discussion_entries(goalId)`
+1. Get task details from Kanbantic: `mcp__kanbantic__list_tasks(issueId)`
+2. Get code instructions from discussion: `mcp__kanbantic__list_discussion_entries(issueId)`
 3. Find the KnowledgeExtraction entry matching the current phase
 4. Fill in the template placeholders
 5. Dispatch via Agent tool with `subagent_type: "general-purpose"`
 6. Review the subagent's report
-7. Update task status: `mcp__kanbantic__update_goal_task_status(goalId, taskId, status: "Done")`
+7. Update task status: `mcp__kanbantic__update_task_status(issueId, taskId, status: "Done")`

@@ -1,20 +1,20 @@
 # Code Reviewer Subagent Prompt Template
 
-Use this template when dispatching a reviewer subagent for a Kanbantic goal phase.
+Use this template when dispatching a reviewer subagent for a Kanbantic issue phase.
 
 ```
 Agent tool (superpowers:code-reviewer):
-  description: "Review Phase: [phase name] for [goal code]"
+  description: "Review Phase: [phase name] for [issue code]"
   prompt: |
-    You are reviewing a completed implementation phase for a Kanbantic goal.
+    You are reviewing a completed implementation phase for a Kanbantic issue.
 
     ## What Was Implemented
     [WHAT_WAS_IMPLEMENTED]
 
-    ## Goal
-    Code: [GOAL_CODE]
-    Title: [GOAL_TITLE]
-    Description: [GOAL_DESCRIPTION]
+    ## Issue
+    Code: [ISSUE_CODE]
+    Title: [ISSUE_TITLE]
+    Description: [ISSUE_DESCRIPTION]
 
     ## Requirements (from Kanbantic Specifications)
     [List each specification as a checklist item:]
@@ -88,7 +88,7 @@ Agent tool (superpowers:code-reviewer):
 ## Usage
 
 1. Get specs: `mcp__kanbantic__list_specifications(workspaceId)`
-2. Get test cases: `mcp__kanbantic__list_test_cases(workspaceId, goalId)`
+2. Get test cases: `mcp__kanbantic__list_test_cases(workspaceId, issueId)`
 3. Get git diff: `git diff <base>..<head>`
 4. Fill in template placeholders
 5. Dispatch via Agent tool

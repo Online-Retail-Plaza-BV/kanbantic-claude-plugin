@@ -1,6 +1,6 @@
 ---
 name: kanbantic-code-review
-description: "Use after completing an implementation phase or goal. Reviews code against Kanbantic specifications and test cases, then approves or rejects the phase."
+description: "Use after completing an implementation phase or issue. Reviews code against Kanbantic specifications and test cases, then approves or rejects the phase."
 ---
 
 # Kanbantic Code Review
@@ -15,7 +15,7 @@ Review completed implementation against Kanbantic specifications and test cases.
 
 ## Checklist
 
-1. **Load context** — goal, specifications, test cases
+1. **Load context** — issue, specifications, test cases
 2. **Get diff** — what changed in this phase
 3. **Dispatch reviewer** — subagent reviews against specs
 4. **Record feedback** — discussion entry with categorized issues
@@ -24,9 +24,9 @@ Review completed implementation against Kanbantic specifications and test cases.
 ## Step 1: Load Context
 
 ```
-MCP: mcp__kanbantic__get_goal(goalId)
+MCP: mcp__kanbantic__get_issue(issueId)
 MCP: mcp__kanbantic__list_specifications(workspaceId)
-MCP: mcp__kanbantic__list_test_cases(workspaceId, goalId)
+MCP: mcp__kanbantic__list_test_cases(workspaceId, issueId)
 ```
 
 Build a requirements checklist from specifications and test cases.
@@ -40,7 +40,7 @@ git diff <phase-start-sha>..HEAD --stat
 git diff <phase-start-sha>..HEAD
 ```
 
-If reviewing the entire goal:
+If reviewing the entire issue:
 ```bash
 git diff main..HEAD --stat
 git diff main..HEAD
@@ -51,14 +51,14 @@ git diff main..HEAD
 Use the reviewer template at `reviewer-prompt.md` in this directory.
 
 Dispatch via Agent tool with `subagent_type: "general-purpose"`:
-- Fill in the goal details, specifications, test cases, and diff
+- Fill in the issue details, specifications, test cases, and diff
 - The reviewer returns categorized feedback
 
 ## Step 4: Record Feedback in Kanbantic
 
 ```
 MCP: mcp__kanbantic__add_discussion_entry(
-  goalId,
+  issueId,
   content: <review feedback in Markdown>,
   entryType: "Comment"
 )
@@ -95,15 +95,15 @@ Feedback format:
 ### If no Critical or Important issues:
 
 ```
-MCP: mcp__kanbantic__approve_phase(goalId, phaseId)
+MCP: mcp__kanbantic__approve_phase(issueId, phaseId)
 ```
 
 ### If Critical or Important issues found:
 
 Create fix tasks:
 ```
-MCP: mcp__kanbantic__add_goal_task(
-  goalId,
+MCP: mcp__kanbantic__add_task(
+  issueId,
   title: "Fix: [issue description]",
   description: "[what to fix and how]",
   priority: "High"
@@ -113,7 +113,7 @@ MCP: mcp__kanbantic__add_goal_task(
 Then reject:
 ```
 MCP: mcp__kanbantic__reject_phase(
-  goalId, phaseId,
+  issueId, phaseId,
   reason: "[N] critical and [N] important issues found. Fix tasks created."
 )
 ```

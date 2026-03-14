@@ -1,20 +1,20 @@
 ---
-name: kanbantic-goal-design
-description: "Use when a new Goal or Feature needs to be designed. Explores requirements through dialogue, then creates the goal with specifications and test cases in Kanbantic. For bugs, use /report-bug instead."
+name: kanbantic-issue-design
+description: "Use when a new Issue or Feature needs to be designed. Explores requirements through dialogue, then creates the issue with specifications and test cases in Kanbantic. For bugs, use /report-bug instead."
 ---
 
-# Kanbantic Goal Design
+# Kanbantic Issue Design
 
 ## Overview
 
-Design goals and features through collaborative dialogue. All artifacts are created in Kanbantic via MCP — not in local files. For bugs, use `/report-bug` — it's faster and tailored to bug intake.
+Design issues and features through collaborative dialogue. All artifacts are created in Kanbantic via MCP — not in local files. For bugs, use `/report-bug` — it's faster and tailored to bug intake.
 
 **Principle:** Read from Kanbantic → Design with user → Write to Kanbantic.
 
-**Announce at start:** "I'm using the kanbantic-goal-design skill to design this goal."
+**Announce at start:** "I'm using the kanbantic-issue-design skill to design this issue."
 
 <HARD-GATE>
-Do NOT invoke any implementation skill, write any code, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY goal regardless of perceived simplicity.
+Do NOT invoke any implementation skill, write any code, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY issue regardless of perceived simplicity.
 </HARD-GATE>
 
 ## Checklist
@@ -26,18 +26,18 @@ You MUST complete these steps in order:
 3. **Clarify** — ask questions one at a time
 4. **Propose** — present 2-3 approaches with trade-offs
 5. **Design** — present design sections, get approval per section
-6. **Persist** — create/update goal + specifications + test cases + decision entry in Kanbantic
-7. **Handoff** — invoke kanbantic-goal-planning skill
+6. **Persist** — create/update issue + specifications + test cases + decision entry in Kanbantic
+7. **Handoff** — invoke kanbantic-issue-planning skill
 
 ## Step 1: Orient
 
-Load workspace context to understand where this goal lives:
+Load workspace context to understand where this issue lives:
 
 ```
 MCP: mcp__kanbantic__get_context
 ```
 
-Note the workspace ID, active releases, and applications — you'll need these when creating the goal.
+Note the workspace ID, active releases, and applications — you'll need these when creating the issue.
 
 ## Step 2: Explore
 
@@ -95,9 +95,9 @@ Be ready to revise based on feedback.
 
 After user approves the complete design:
 
-### 6a: Create or Update Goal
+### 6a: Create or Update Issue
 
-If goal doesn't exist yet:
+If issue doesn't exist yet:
 ```
 MCP: mcp__kanbantic__create_issue(
   workspaceId: <workspace ID — REQUIRED to ensure correct workspace>,
@@ -111,7 +111,7 @@ MCP: mcp__kanbantic__create_issue(
 )
 ```
 
-If goal already exists:
+If issue already exists:
 ```
 MCP: mcp__kanbantic__update_issue(issueId, description: <updated description>)
 ```
@@ -129,7 +129,7 @@ MCP: mcp__kanbantic__create_specification(
 ```
 
 Categories:
-- **ProductRequirement**: User-facing behavior ("Goal detail shows test coverage indicator")
+- **ProductRequirement**: User-facing behavior ("Issue detail shows test coverage indicator")
 - **SystemRequirement**: Technical constraint ("LEFT JOIN on TestCases for coverage count")
 - **SecurityRequirement**: Auth/access rules
 - **Rule**: Business logic ("Enforcement Off/Soft/Hard")
@@ -145,7 +145,7 @@ MCP: mcp__kanbantic__create_test_case(
   description: <what to test>,
   steps: <step-by-step>,
   expectedResult: <expected outcome>,
-  goalId: <goal ID>,
+  issueId: <issue ID>,
   priority: "High" | "Medium"
 )
 ```
@@ -155,7 +155,7 @@ MCP: mcp__kanbantic__create_test_case(
 Record the design decision:
 ```
 MCP: mcp__kanbantic__add_discussion_entry(
-  goalId: <id>,
+  issueId: <id>,
   content: <design summary with chosen approach and rationale>,
   entryType: "Decision"
 )
@@ -165,11 +165,11 @@ MCP: mcp__kanbantic__add_discussion_entry(
 
 After all artifacts are persisted:
 
-**"Design complete. Goal [CODE] has been created/updated with [N] specifications and [N] test cases.**
+**"Design complete. Issue [CODE] has been created/updated with [N] specifications and [N] test cases.**
 
-**Next step:** Invoke `kanbantic-goal-planning` to create the implementation plan."
+**Next step:** Invoke `kanbantic-issue-planning` to create the implementation plan."
 
-Then invoke: `Skill: kanbantic-goal-planning`
+Then invoke: `Skill: kanbantic-issue-planning`
 
 ## Key Principles
 

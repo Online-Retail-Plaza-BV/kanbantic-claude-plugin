@@ -1,30 +1,30 @@
 # Kanbantic Claude Plugin
 
-Claude Code plugin for Kanbantic goal lifecycle management. All artifacts are created and managed through Kanbantic MCP tools — no local file output.
+Claude Code plugin for Kanbantic issue lifecycle management. All artifacts are created and managed through Kanbantic MCP tools — no local file output.
 
 ## Skills
 
 | Skill | Command | Description |
 |-------|---------|-------------|
-| `kanbantic-goal-design` | `/design-goal` | Design a new goal or feature with specifications and test cases |
+| `kanbantic-issue-design` | `/design-issue` | Design a new issue or feature with specifications and test cases |
 | `kanbantic-bug-report` | `/report-bug` | Quick bug intake: what's broken, steps to reproduce, severity |
-| `kanbantic-goal-planning` | `/plan-goal` | Create implementation plan with phases, tasks, and code instructions |
-| `kanbantic-goal-executing` | `/execute-goal` | Execute implementation plan phase by phase with reviews |
+| `kanbantic-issue-planning` | `/plan-issue` | Create implementation plan with phases, tasks, and code instructions |
+| `kanbantic-issue-executing` | `/execute-issue` | Execute implementation plan phase by phase with reviews |
 | `kanbantic-code-review` | *(auto)* | Review completed phase against specifications and test cases |
 | `kanbantic-debugging` | *(manual)* | Systematic bug investigation with root cause analysis |
 
 ## Workflow
 
 ```
-/design-goal → /plan-goal → /execute-goal
+/design-issue → /plan-issue → /execute-issue
                                    ↓
                           code-review (per phase)
 
-/report-bug → /plan-goal or debugging
+/report-bug → /plan-issue or debugging
 ```
 
-1. **Design** — Collaborate on requirements → Creates Goal + Specs + Test Cases in Kanbantic
-2. **Report Bug** — Quick intake → Creates Bug goal with steps to reproduce
+1. **Design** — Collaborate on requirements → Creates Issue + Specs + Test Cases in Kanbantic
+2. **Report Bug** — Quick intake → Creates Bug issue with steps to reproduce
 3. **Plan** — Explore codebase → Creates Implementation Plan + Phases + Tasks + Code Instructions
 4. **Execute** — Implement phase by phase → Updates task status, commits code, requests review
 5. **Review** — Subagent reviews against specs → Approves or rejects phase with feedback
@@ -93,14 +93,14 @@ claude plugin install kanbantic-claude-plugin@kanbantic
 
 **Read from Kanbantic → Do the work → Write to Kanbantic**
 
-All artifacts (goals, specifications, test cases, implementation plans, discussion entries) live in Kanbantic, not in local files. A developer with only Kanbantic access has everything needed to understand and implement any goal.
+All artifacts (issues, specifications, test cases, implementation plans, discussion entries) live in Kanbantic, not in local files. A developer with only Kanbantic access has everything needed to understand and implement any issue.
 
 ## Coexistence with Superpowers
 
 This plugin replaces superpowers for Kanbantic-specific workflows:
-- `brainstorming` → `kanbantic-goal-design`
-- `writing-plans` → `kanbantic-goal-planning`
-- `executing-plans` → `kanbantic-goal-executing`
+- `brainstorming` → `kanbantic-issue-design`
+- `writing-plans` → `kanbantic-issue-planning`
+- `executing-plans` → `kanbantic-issue-executing`
 - `requesting-code-review` → `kanbantic-code-review`
 - `systematic-debugging` → `kanbantic-debugging`
 

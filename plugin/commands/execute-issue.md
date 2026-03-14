@@ -3,4 +3,4 @@ description: "Execute an implementation plan from Kanbantic phase by phase with 
 disable-model-invocation: true
 ---
 
-Invoke the kanbantic-goal-executing skill and follow it exactly as presented to you
+Invoke the kanbantic-issue-executing skill and follow it exactly as presented to you

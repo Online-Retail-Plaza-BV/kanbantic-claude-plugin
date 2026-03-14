@@ -1,13 +1,13 @@
 ---
 name: kanbantic-debugging
-description: "Use when investigating bugs, test failures, or unexpected behavior for a Kanbantic bug goal. Systematic root cause analysis with results recorded in Kanbantic."
+description: "Use when investigating bugs, test failures, or unexpected behavior for a Kanbantic bug issue. Systematic root cause analysis with results recorded in Kanbantic."
 ---
 
 # Kanbantic Debugging
 
 ## Overview
 
-Systematic debugging for Kanbantic bug goals. Find root cause first, then fix. All findings and fixes are recorded in Kanbantic.
+Systematic debugging for Kanbantic bug issues. Find root cause first, then fix. All findings and fixes are recorded in Kanbantic.
 
 **Principle:** Read bug from Kanbantic → Investigate systematically → Write results to Kanbantic.
 
@@ -26,12 +26,12 @@ If you haven't completed Phase 1, you cannot propose fixes.
 4. **Fix** — implement and verify
 5. **Test** — create regression test case + test run
 6. **Document** — root cause analysis in discussion
-7. **Complete** — update goal status
+7. **Complete** — update issue status
 
 ## Step 1: Load Bug
 
 ```
-MCP: mcp__kanbantic__get_goal(goalId)
+MCP: mcp__kanbantic__get_issue(issueId)
 ```
 
 Read:
@@ -88,8 +88,8 @@ After root cause is confirmed, proceed to fix.
 
 Create fix tasks in Kanbantic:
 ```
-MCP: mcp__kanbantic__add_goal_task(
-  goalId,
+MCP: mcp__kanbantic__add_task(
+  issueId,
   title: "Fix: [specific fix description]",
   description: "[what to change and why]",
   priority: "High"
@@ -100,7 +100,7 @@ MCP: mcp__kanbantic__add_goal_task(
 
 Per fix task:
 ```
-MCP: mcp__kanbantic__update_goal_task_status(goalId, taskId, status: "InProgress")
+MCP: mcp__kanbantic__update_task_status(issueId, taskId, status: "InProgress")
 ```
 
 - Implement the fix
@@ -108,13 +108,13 @@ MCP: mcp__kanbantic__update_goal_task_status(goalId, taskId, status: "InProgress
 - Run existing tests
 
 ```
-MCP: mcp__kanbantic__update_goal_task_status(goalId, taskId, status: "Done")
+MCP: mcp__kanbantic__update_task_status(issueId, taskId, status: "Done")
 ```
 
 Commit:
 ```bash
 git add <files>
-git commit -m "fix(<goal-code>): <description>"
+git commit -m "fix(<issue-code>): <description>"
 ```
 
 ## Step 5: Create Regression Test
@@ -127,7 +127,7 @@ MCP: mcp__kanbantic__create_test_case(
   description: "Verifies that [bug] does not recur",
   steps: "[steps to verify the fix]",
   expectedResult: "[expected behavior after fix]",
-  goalId,
+  issueId,
   priority: "High"
 )
 ```
@@ -146,7 +146,7 @@ MCP: mcp__kanbantic__create_test_run(
 
 ```
 MCP: mcp__kanbantic__add_discussion_entry(
-  goalId,
+  issueId,
   content: <root cause analysis>,
   entryType: "Comment"
 )
@@ -175,12 +175,12 @@ Root cause analysis template:
 ## Step 7: Complete
 
 ```
-MCP: mcp__kanbantic__update_goal_status(goalId, status: "Review")
+MCP: mcp__kanbantic__update_issue_status(issueId, status: "Review")
 ```
 
 Or if the fix is simple and verified:
 ```
-MCP: mcp__kanbantic__update_goal_status(goalId, status: "Done")
+MCP: mcp__kanbantic__update_issue_status(issueId, status: "Done")
 ```
 
 ## Red Flags — STOP and Return to Phase 1

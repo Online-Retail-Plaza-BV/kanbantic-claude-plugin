@@ -1,6 +1,6 @@
 ---
 name: kanbantic-bug-report
-description: "Use when a user wants to report a bug. Lightweight intake: captures what's broken, steps to reproduce, and severity — then creates a Bug goal in Kanbantic."
+description: "Use when a user wants to report a bug. Lightweight intake: captures what's broken, steps to reproduce, and severity — then creates a Bug issue in Kanbantic."
 user_invocable: true
 command: report-bug
 ---
@@ -9,7 +9,7 @@ command: report-bug
 
 ## Overview
 
-Lightweight bug intake. Capture what's broken, create a Bug goal in Kanbantic. No design phases, no approach comparison — just get the bug documented quickly.
+Lightweight bug intake. Capture what's broken, create a Bug issue in Kanbantic. No design phases, no approach comparison — just get the bug documented quickly.
 
 **Principle:** Gather the essentials → Create Bug in Kanbantic → Optionally hand off to debugging or planning.
 
@@ -22,7 +22,7 @@ You MUST complete these steps in order:
 1. **Orient** — load workspace context
 2. **Gather** — ask what's broken (max 3 questions)
 3. **Confirm** — show summary, get approval
-4. **Persist** — create Bug goal + optional test case in Kanbantic
+4. **Persist** — create Bug issue + optional test case in Kanbantic
 5. **Handoff** — suggest next step
 
 ## Step 1: Orient
@@ -81,7 +81,7 @@ Wait for user confirmation before persisting.
 
 ## Step 4: Persist to Kanbantic
 
-### 4a: Create Bug Goal
+### 4a: Create Bug Issue
 
 Format the description as structured Markdown with bug details:
 
@@ -139,7 +139,7 @@ MCP: mcp__kanbantic__create_test_case(
   description: "Verify that [bug] is fixed",
   steps: "[steps to verify]",
   expectedResult: "[expected behavior after fix]",
-  goalId: <bug goal ID>,
+  issueId: <bug issue ID>,
   priority: "High"
 )
 ```
@@ -154,12 +154,12 @@ After the bug is created:
 
 Offer options:
 1. **Investigate now** — invoke `kanbantic-debugging` skill
-2. **Plan a fix** — invoke `kanbantic-goal-planning` skill (creates implementation plan)
+2. **Plan a fix** — invoke `kanbantic-issue-planning` skill (creates implementation plan)
 3. **Done for now** — leave it for triage
 
 ## Key Principles
 
 - **Fast** — max 3 questions, no design phases
 - **Structured** — always include steps to reproduce + expected vs actual
-- **Kanbantic is source of truth** — bug details in the goal, not local files
+- **Kanbantic is source of truth** — bug details in the issue, not local files
 - **Don't over-engineer** — a bug report is not a design document

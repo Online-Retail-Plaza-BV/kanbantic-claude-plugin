@@ -157,9 +157,8 @@ After the bug is created:
 **"Bug [CODE] has been created. What would you like to do next?"**
 
 Offer options:
-1. **Investigate now** — invoke `kanbantic-debugging` skill
-2. **Plan a fix** — invoke `kanbantic-issue-planning` skill (creates implementation plan)
-3. **Done for now** — leave it for triage
+1. **Investigate now** — invoke `kanbantic-debugging` skill (systematic root cause analysis + fix)
+2. **Done for now** — leave it for triage
 
 ## Key Principles
 

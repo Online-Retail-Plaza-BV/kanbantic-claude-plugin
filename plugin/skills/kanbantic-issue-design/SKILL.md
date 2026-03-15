@@ -167,11 +167,21 @@ MCP: mcp__kanbantic__add_discussion_entry(
 
 After all artifacts are persisted:
 
-**"Design complete. Issue [CODE] has been created/updated with [N] specifications and [N] test cases.**
+### If Epic:
+
+**"Design complete. Epic [CODE] has been created/updated with [N] specifications and [N] test cases.**
 
 **Next step:** Invoke `kanbantic-issue-planning` to create the implementation plan."
 
 Then invoke: `Skill: kanbantic-issue-planning`
+
+### If Feature:
+
+**"Design complete. Feature [CODE] has been created/updated with [N] specifications and [N] test cases.**
+
+**Next step:** Use `kanbantic-issue-executing` to start implementation. Tasks will be created directly on the issue (Features do not use Implementation Plans with phases)."
+
+Then invoke: `Skill: kanbantic-issue-executing`
 
 ## Key Principles
 

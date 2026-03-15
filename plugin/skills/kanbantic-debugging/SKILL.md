@@ -28,7 +28,7 @@ If you haven't completed Phase 1, you cannot propose fixes.
 6. **Document** — root cause analysis in discussion
 7. **Complete** — update issue status
 
-## Step 1: Load Bug
+## Step 1: Load and Claim Bug
 
 ```
 MCP: mcp__kanbantic__get_issue(issueId)
@@ -44,6 +44,20 @@ Read:
 - Steps to reproduce
 - Expected vs actual behavior
 - Priority and context
+
+**Claim the bug** — set status to InProgress before any investigation or task work:
+```
+MCP: mcp__kanbantic__claim_issue(issueId, branch: "fix/<issue-code>-<short-description>")
+```
+
+<IMPORTANT>
+Tasks can ONLY be started when the parent issue is **InProgress**. The claim above ensures this. NEVER create or start tasks on an issue that hasn't been claimed first.
+</IMPORTANT>
+
+Create the branch locally:
+```bash
+git checkout -b fix/<issue-code>-<description>
+```
 
 ## Step 2: Investigate — The Four Phases
 
@@ -204,10 +218,28 @@ If you catch yourself thinking:
 
 If 3+ fixes have failed: question the architecture. Discuss with user before attempting more fixes.
 
+## Cancelling a Bug
+
+If investigation reveals the bug is not valid (cannot reproduce, expected behavior, duplicate):
+
+<IMPORTANT>
+Cancellation MUST include justification recorded as a Decision discussion entry BEFORE changing status.
+</IMPORTANT>
+
+```
+MCP: mcp__kanbantic__add_discussion_entry(
+  issueId,
+  content: "**Bug cancelled.** Reason: [clear justification — e.g. cannot reproduce after X attempts, expected behavior per spec Y, duplicate of KBT-BXXX]",
+  entryType: "Decision"
+)
+MCP: mcp__kanbantic__update_issue_status(issueId, status: "Cancelled")
+```
+
 ## Key Principles
 
 - **Root cause first** — never fix symptoms
 - **One change at a time** — isolate variables
 - **Always create regression test** — prevent recurrence
 - **Document everything** — future developers need context
+- **Justify cancellations** — always record why in a Decision discussion entry
 - **Kanbantic records all** — investigation and fix in discussion entries

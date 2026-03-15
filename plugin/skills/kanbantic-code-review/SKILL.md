@@ -105,6 +105,10 @@ MCP: mcp__kanbantic__approve_phase(issueId, phaseId)
 
 ### If Critical or Important issues found:
 
+<IMPORTANT>
+Rejection MUST always include a clear justification. The reason is recorded as a discussion entry and must explain what failed and what needs to change.
+</IMPORTANT>
+
 Create fix tasks:
 ```
 MCP: mcp__kanbantic__add_task(
@@ -115,11 +119,11 @@ MCP: mcp__kanbantic__add_task(
 )
 ```
 
-Then reject:
+Then reject with detailed reason:
 ```
 MCP: mcp__kanbantic__reject_phase(
   issueId, phaseId,
-  reason: "[N] critical and [N] important issues found. Fix tasks created."
+  reason: "[N] critical and [N] important issues found: [list each issue briefly]. Fix tasks created."
 )
 ```
 
@@ -130,5 +134,6 @@ The implementer fixes the issues and re-submits the phase for review.
 - **Specs are the checklist** — review against Kanbantic specifications, not just "does it look good"
 - **Categorize issues** — Critical / Important / Minor
 - **Create fix tasks** — don't just reject, tell them what to fix
+- **Justify rejections** — always provide a clear, detailed reason explaining what failed
 - **Push back if wrong** — if reviewer feedback is incorrect, explain why with evidence
 - **Record everything** — all feedback goes to Kanbantic discussion

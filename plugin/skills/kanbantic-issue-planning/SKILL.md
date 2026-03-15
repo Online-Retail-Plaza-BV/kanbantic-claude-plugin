@@ -1,6 +1,6 @@
 ---
 name: kanbantic-issue-planning
-description: "Use when an issue needs an implementation plan. Queries knowledge + targeted codebase exploration, creates phases and tasks with full code instructions in Kanbantic."
+description: "Use when an Epic needs an implementation plan. Implementation Plans are ONLY for Epics — Features and Bugs do not use them. Queries knowledge + targeted codebase exploration, creates phases and tasks with full code instructions in Kanbantic."
 ---
 
 # Kanbantic Issue Planning
@@ -13,10 +13,15 @@ Create a complete implementation plan in Kanbantic with phases, tasks, and code-
 
 **Announce at start:** "I'm using the kanbantic-issue-planning skill to create the implementation plan."
 
+<HARD-GATE>
+Implementation Plans are ONLY for Epics. If the issue type is Feature, Bug, or any other non-Epic type, STOP and inform the user: "Implementation Plans are only used for Epics. For Features and Bugs, tasks are created directly on the issue without phases. Use `kanbantic-issue-executing` to work on this issue directly."
+</HARD-GATE>
+
 ## Checklist
 
 You MUST complete these steps in order:
 
+0. **Validate issue type** — verify the issue is an Epic (HARD GATE)
 1. **Load issue** — get issue context, specs, and test cases
 2. **Load knowledge** — query Toolkit patterns + Library docs (avoids redundant codebase exploration)
 3. **Targeted exploration** — only explore code areas NOT covered by existing knowledge
@@ -26,15 +31,26 @@ You MUST complete these steps in order:
 7. **Update knowledge** — store newly discovered patterns in Toolkit, update Library if architecture changed
 8. **Update status** — issue → Triaged
 
-## Step 1: Load Issue Context
+## Step 0: Validate Issue Type
 
 ```
 MCP: mcp__kanbantic__get_issue(issueId)
+```
+
+Check the issue type. If it is NOT an Epic, **STOP** and inform the user:
+
+> "Implementation Plans are only used for Epics. This issue is a [type]. For Features and Bugs, tasks are added directly to the issue without phases. Use `kanbantic-issue-executing` to work on this issue directly."
+
+Only proceed if the issue type is **Epic**.
+
+## Step 1: Load Issue Context
+
+```
 MCP: mcp__kanbantic__list_specifications(workspaceId)
 MCP: mcp__kanbantic__list_test_cases(workspaceId, issueId)
 ```
 
-Read the issue description, linked specifications (requirements), and test cases (acceptance criteria). These define WHAT to build.
+Read the issue description (already loaded in Step 0), linked specifications (requirements), and test cases (acceptance criteria). These define WHAT to build.
 
 ## Step 2: Load Existing Knowledge
 

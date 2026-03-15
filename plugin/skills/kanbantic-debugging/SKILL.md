@@ -32,7 +32,12 @@ If you haven't completed Phase 1, you cannot propose fixes.
 
 ```
 MCP: mcp__kanbantic__get_issue(issueId)
+MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Gotcha")
+MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Pattern")
+MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Rule")
 ```
+
+Load known pitfalls (Gotchas) and established patterns — these may point directly to the root cause or help avoid known traps during investigation.
 
 Read:
 - Bug description
@@ -61,7 +66,11 @@ Read:
    git diff HEAD~5..HEAD --stat
    ```
 
-4. **Trace data flow**
+4. **Check known gotchas**
+   - Review Toolkit Gotchas loaded in Step 1 for any known issues related to the affected area
+   - A known gotcha may point directly to the root cause and save investigation time
+
+5. **Trace data flow**
    - Where does the bad value originate?
    - Trace backward through the call stack
    - Fix at source, not at symptom

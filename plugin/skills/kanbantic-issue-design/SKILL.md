@@ -39,6 +39,8 @@ MCP: mcp__kanbantic__get_context
 
 Note the workspace ID, active releases, and applications — you'll need these when creating the issue.
 
+Note the workspace's `TestCoverageEnforcement` and `ReadinessGateEnforcement` settings from the context response. If enforcement is Soft or Hard, ensure your design includes the required artifacts (specifications, test cases) before handoff to planning.
+
 ## Step 2: Explore
 
 Read existing requirements, project conventions, and architecture knowledge:

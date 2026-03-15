@@ -27,9 +27,14 @@ Review completed implementation against Kanbantic specifications and test cases.
 MCP: mcp__kanbantic__get_issue(issueId)
 MCP: mcp__kanbantic__list_specifications(workspaceId)
 MCP: mcp__kanbantic__list_test_cases(workspaceId, issueId)
+MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Rule")
+MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Pattern")
+MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Gotcha")
 ```
 
 Build a requirements checklist from specifications and test cases.
+
+Include Rules, Patterns, and Gotchas in the review context — the reviewer should verify code adheres to project rules and follows established patterns.
 
 ## Step 2: Get Git Diff
 

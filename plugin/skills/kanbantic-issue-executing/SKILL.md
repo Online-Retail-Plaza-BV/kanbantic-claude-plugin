@@ -21,10 +21,24 @@ Execute an implementation plan from Kanbantic phase by phase. Each phase gets re
 4. **Update knowledge** — store corrections or new discoveries in Toolkit/Library
 5. **Complete** — set issue status to Review
 
-## Step 1: Claim Issue
+## Step 1a: Check Readiness
+
+Before claiming, verify the issue is ready to start:
 
 ```
-MCP: mcp__kanbantic__claim_issue(issueId, branch: "<branch-name>")
+MCP: mcp__kanbantic__get_issue(issueId)
+```
+
+Inspect the response:
+- **`IsReadyToClaim`**: If `true`, proceed to Step 1b.
+- **`IsReadyToClaim`**: If `false`, check `ReadinessChecks` for details:
+  - **Hard enforcement**: STOP. Tell the user which checks failed and what needs to be resolved before work can begin. Do not proceed.
+  - **Soft enforcement**: Warn the user which checks failed. Ask if they want to override. If yes, collect an `overrideReason` to pass in Step 1b.
+
+## Step 1b: Claim Issue and Create Branch
+
+```
+MCP: mcp__kanbantic__claim_issue(issueId, branch: "<branch-name>", overrideReason: "<if soft override>")
 ```
 
 Branch naming: `feature/<issue-code>-<short-description>` or `fix/<issue-code>-<short-description>`.
@@ -34,9 +48,19 @@ Create the branch locally:
 git checkout -b feature/<issue-code>-<description>
 ```
 
+## Workflow by Issue Type
+
+Not all issues follow the full phase workflow:
+
+- **Bug**: Simplified workflow — NO implementation plan or phases. Skip Step 2a (Load Plan), 3a (Unlock Phase), 3c (Mark Phase for Review), and 3d (Request Code Review per phase). Instead: load tasks directly, execute all fix tasks, then do a single code review at the end before completing.
+- **Feature**: Optional plan. If an implementation plan exists, follow the full phase workflow. If no plan exists, load tasks directly and execute them (skip phase-related steps 3a, 3c, 3d).
+- **Epic**: Full workflow required — implementation plan with phases, per-phase review, the complete process.
+
 ## Step 2: Load Implementation Plan + Project Knowledge
 
 ### 2a: Load Plan from Kanbantic
+
+> **Note:** Skip this step for Bugs — bugs use tasks directly without an implementation plan.
 
 ```
 MCP: mcp__kanbantic__get_implementation_plan(issueId)
@@ -54,10 +78,13 @@ The KnowledgeExtraction entries contain the detailed code — use these as your 
 ### 2b: Load Project Knowledge from Kanbantic
 
 ```
+MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "ClaudeMd")
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Pattern")
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Gotcha")
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Rule")
 ```
+
+Load project-specific development guidance (ClaudeMd) first — these contain CLAUDE.md-style instructions that apply to all work in this workspace.
 
 Optionally, if this issue touches architectural areas, read relevant Library documents:
 ```
@@ -72,6 +99,8 @@ Do NOT launch Explore agents or do broad codebase exploration. The plan (tasks +
 </IMPORTANT>
 
 ## Step 3: Execute Per Phase
+
+> **For Bugs:** Skip phase-related steps (3a, 3c, 3d). Execute all tasks in Step 3b, then do a single code review at the end.
 
 For each unlocked phase:
 
@@ -203,7 +232,15 @@ This creates traceability between the issue and knowledge base — visible in th
 
 ## Step 5: Complete Issue
 
-After all phases are approved:
+After all phases are approved, check readiness before completing:
+
+```
+MCP: mcp__kanbantic__get_issue(issueId)
+```
+
+Inspect `IsReadyToClaim` and `ReadinessChecks` again — at completion, these reflect whether all required artifacts (test cases, specifications, etc.) are in place. If checks fail, report the failing checks to the user before proceeding. The user may need to add missing test cases or specifications.
+
+Then update status:
 ```
 MCP: mcp__kanbantic__update_issue_status(issueId, status: "Review")
 ```

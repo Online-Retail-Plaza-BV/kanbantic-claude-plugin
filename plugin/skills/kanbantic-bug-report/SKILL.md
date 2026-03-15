@@ -35,6 +35,8 @@ MCP: mcp__kanbantic__get_context
 
 Note the workspace ID, active releases, and applications.
 
+Note the workspace's `TestCoverageEnforcement` and `ReadinessGateEnforcement` settings. If test cases are enforced (Soft or Hard), ensure you create a regression test case in Step 4b — it's not optional when enforcement is active.
+
 ## Step 2: Gather
 
 Ask **at most 3 questions**, one at a time, to fill in the bug details. If the user's initial message already covers some, skip those questions.
@@ -128,7 +130,9 @@ Priority mapping from severity:
 - Medium → Medium
 - Low → Low
 
-### 4b: Create Regression Test Case (optional)
+### 4b: Create Regression Test Case
+
+**Required** when `TestCoverageEnforcement` is Soft or Hard. **Recommended** otherwise.
 
 If the bug is clear enough to define a pass/fail criterion:
 
@@ -144,7 +148,7 @@ MCP: mcp__kanbantic__create_test_case(
 )
 ```
 
-Skip this if the bug is vague or needs investigation first.
+Only skip if the bug is too vague AND the workspace does not enforce test coverage.
 
 ## Step 5: Handoff
 

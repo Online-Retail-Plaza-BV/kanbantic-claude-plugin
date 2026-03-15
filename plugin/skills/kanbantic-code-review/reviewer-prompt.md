@@ -26,6 +26,13 @@ Agent tool (superpowers:code-reviewer):
     - [ ] KBT-TC001: [title] — [expected result]
     - [ ] KBT-TC002: [title] — [expected result]
 
+    ## Project Rules & Patterns (from Kanbantic Toolkit)
+    [PASTE relevant Rules, Patterns, and Gotchas from Toolkit.
+     The reviewer should verify code adheres to these.]
+    - Rule: [title] — [content summary]
+    - Pattern: [title] — [content summary]
+    - Gotcha: [title] — [content summary]
+
     ## Git Diff
     Base: [BASE_SHA]
     Head: [HEAD_SHA]
@@ -43,6 +50,7 @@ Agent tool (superpowers:code-reviewer):
 
     3. **Code Quality**:
        - Follows existing codebase patterns
+       - Adheres to project Rules, Patterns, and Gotchas from the Toolkit
        - Proper error handling
        - No security vulnerabilities
        - Clean, maintainable code

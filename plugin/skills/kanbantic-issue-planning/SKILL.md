@@ -41,11 +41,14 @@ Read the issue description, linked specifications (requirements), and test cases
 Before exploring the codebase, query the project knowledge base for already-documented patterns and architecture:
 
 ```
+MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "ClaudeMd")
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Pattern")
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Gotcha")
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Rule")
 MCP: mcp__kanbantic__list_library_documents(workspaceId, categoryType: "Architecture")
 ```
+
+Load project-specific development guidance (ClaudeMd) first — these contain CLAUDE.md-style instructions that apply to all work in this workspace.
 
 Read any relevant Library documents (e.g., architecture guides, API patterns, data model docs):
 ```
@@ -245,6 +248,15 @@ This entry creates traceability between the issue and the knowledge base — vis
 
 ## Step 8: Update Issue Status
 
+Before updating status, verify readiness:
+
+```
+MCP: mcp__kanbantic__get_issue(issueId)
+```
+
+Inspect `IsReadyToClaim` and `ReadinessChecks` — these reflect whether all required artifacts (specifications, test cases, etc.) are in place for the next stage. If checks fail, report the failing checks to the user. They may need to add missing specifications or test cases before the issue can proceed.
+
+Then update status:
 ```
 MCP: mcp__kanbantic__update_issue_status(issueId, status: "Triaged")
 ```

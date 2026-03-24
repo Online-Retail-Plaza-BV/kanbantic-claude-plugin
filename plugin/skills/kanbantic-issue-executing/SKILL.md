@@ -23,7 +23,8 @@ Execute implementation work for any issue type. Handles two modes:
    - **Epic** (has Implementation Plan): execute per phase with review gates
    - **Feature / Bug** (no Implementation Plan): execute tasks directly
 4. **Update knowledge** — store corrections or new discoveries in Toolkit/Library
-5. **Complete** — set issue status to Review
+5. **Run E2E tests** — invoke /test-e2e-local before completing (auto-trigger)
+6. **Complete** — set issue status to Review
 
 <HARD-GATE>
 Tasks can ONLY be started (set to InProgress) when the parent issue is in **InProgress** status. If the issue is not InProgress, you MUST claim it first (Step 1) before working on any task. NEVER start a task on an issue that is still in New, Triaged, or any other non-InProgress status.
@@ -312,7 +313,46 @@ Use this template:
 
 This creates traceability between the issue and knowledge base — visible in the issue's discussion timeline in the Kanbantic UI.
 
-## Step 5: Complete Issue
+## Step 5: Run Local E2E Tests (auto-trigger)
+
+After all tasks are Done and knowledge is updated, run the local E2E test suite before transitioning to Review.
+
+### 5a: Check if skill exists
+
+```
+MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Skill", search: "test-e2e-local")
+```
+
+If no `/test-e2e-local` Toolkit Skill exists in the workspace, **skip this step** and proceed to Step 6.
+
+### 5b: Invoke the skill
+
+Load the Toolkit Skill content and execute the flow it describes:
+- Issue code: use the current issue code (e.g., `KBT-F122`)
+- Default test suite: `e2e/crud-functional.spec.ts`
+- No `--with-mcp` unless the issue touches MCP tools
+
+### 5c: Handle results
+
+**If E2E tests pass:**
+- Add discussion entry: "Local E2E tests passed — proceeding to Review"
+- Continue to Step 6
+
+**If E2E tests fail:**
+- Issue remains **InProgress** (do NOT transition to Review)
+- Add discussion entry with failure details
+- Create fix tasks based on the failure details:
+  ```
+  MCP: mcp__kanbantic__add_task(issueId, title: "Fix E2E failure: {test name}", description: "{error details}", priority: "High")
+  ```
+- Report to user: "E2E tests failed. Created fix tasks. Issue remains InProgress."
+- After fix tasks are completed, re-run this step
+
+**If E2E infrastructure is unavailable** (PostgreSQL not installed, ports permanently occupied):
+- Add discussion entry: "Local E2E tests skipped — {reason}"
+- Warn the user and proceed to Step 6 (do not block the workflow)
+
+## Step 6: Complete Issue
 
 After all tasks are done (and all phases approved, for Epics), check readiness before completing:
 

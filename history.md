@@ -428,3 +428,76 @@ Tested end-to-end in clean `C:\github\test\` directory:
 ```
 
 `claude mcp list` output: `kanbantic: https://kanbantic.com/mcp (HTTP) - ✓ Connected`
+
+## 2026-03-25: Plugin stops working — stale OAuth credential with `plugin:` prefix escapes cleanup
+
+### Symptom
+After running the install script (`irm https://kanbantic.com/install.ps1 | iex`), the plugin still cannot connect to the MCP server. Claude Code shows the plugin as enabled, but MCP tools are unavailable. The `/plugin` command reconnects but the MCP server fails authentication.
+
+### Diagnosis
+1. Plugin installed and enabled in global settings ✓
+2. `KANBANTIC_API_KEY` env var set correctly ✓
+3. Project-root `.mcp.json` has correct `mcpServers` config with Bearer token ✓
+4. Plugin-bundled `.mcp.json` already removed from cache (step 6d working) ✓
+5. BUT: `~/.claude/.credentials.json` contains a stale `mcpOAuth` entry:
+   ```json
+   "mcpOAuth": {
+       "plugin:kanbantic-claude-plugin:kanbantic|dc64643e74db3403": {
+           "serverName": "plugin:kanbantic-claude-plugin:kanbantic",
+           "serverUrl": "https://kanbantic.com/mcp",
+           "accessToken": "",
+           "expiresAt": 0,
+           "discoveryState": {
+               "authorizationServerUrl": "https://kanbantic.com/"
+           }
+       }
+   }
+   ```
+6. The install script's cleanup (step 5f) uses wildcard `$_.Name -like 'kanbantic*'`
+7. The actual key is `plugin:kanbantic-claude-plugin:kanbantic|dc64643e74db3403` — starts with `plugin:`, not `kanbantic`
+8. **The wildcard does NOT match** → the stale OAuth entry survives cleanup
+
+### Root Cause
+**Install script's OAuth cleanup wildcard `'kanbantic*'` misses keys with `plugin:` prefix.**
+
+Claude Code stores plugin MCP OAuth credentials with the key pattern `plugin:<plugin-name>:<server-name>|<hash>`. The cleanup in step 5f filtered on `'kanbantic*'` (starts with `kanbantic`), but the actual key starts with `plugin:`. The same bug existed in validation step 7e.
+
+**Effect chain:**
+1. Claude Code finds the stale `mcpOAuth` entry for `plugin:kanbantic-claude-plugin:kanbantic`
+2. Entry has `accessToken: ""` and `expiresAt: 0` → expired/empty
+3. Claude Code attempts to refresh via OAuth discovery at `https://kanbantic.com/`
+4. Server has no OAuth endpoints (removed in March 2026) → discovery fails
+5. Plugin MCP server is marked as "not authenticated"
+6. Even though the project-root `.mcp.json` has valid Bearer token config, the stale OAuth credential takes precedence for the plugin-registered MCP server
+
+### Fix
+**1. install.ps1 step 5f** (cleanup) — changed wildcard from `'kanbantic*'` to `'*kanbantic*'`:
+```powershell
+# Before (MISSES plugin-prefixed keys):
+$props = @($j.mcpOAuth.PSObject.Properties | Where-Object { $_.Name -like 'kanbantic*' })
+
+# After (matches all kanbantic-related OAuth entries):
+$props = @($j.mcpOAuth.PSObject.Properties | Where-Object { $_.Name -like '*kanbantic*' })
+```
+
+**2. install.ps1 step 7e** (validation) — same wildcard fix:
+```powershell
+# Before:
+$oauthProps = @($creds.mcpOAuth.PSObject.Properties | Where-Object { $_.Name -like 'kanbantic*' })
+
+# After:
+$oauthProps = @($creds.mcpOAuth.PSObject.Properties | Where-Object { $_.Name -like '*kanbantic*' })
+```
+
+**3. Direct fix** — removed the entire `mcpOAuth` section from `~/.claude/.credentials.json`
+
+### Lesson learned
+Claude Code uses different key naming patterns for MCP OAuth credentials depending on how the MCP server was registered:
+- **Project-root `.mcp.json`**: key starts with the server name (e.g., `kanbantic|<hash>`)
+- **Plugin-bundled `.mcp.json`**: key starts with `plugin:<plugin-name>:<server-name>|<hash>`
+
+Any wildcard matching on MCP credential keys must use `*kanbantic*` (both-sided wildcard) to catch all variants, not `kanbantic*` (prefix-only).
+
+### Updated troubleshooting checklist
+Added to the existing checklist (item 4):
+> 4. **No stale OAuth** — `~/.claude/.credentials.json` has no kanbantic entries in `mcpOAuth`. Check for BOTH `kanbantic*` AND `plugin:*kanbantic*` key patterns.

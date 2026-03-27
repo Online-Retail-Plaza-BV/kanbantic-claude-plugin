@@ -501,3 +501,119 @@ Any wildcard matching on MCP credential keys must use `*kanbantic*` (both-sided 
 ### Updated troubleshooting checklist
 Added to the existing checklist (item 4):
 > 4. **No stale OAuth** — `~/.claude/.credentials.json` has no kanbantic entries in `mcpOAuth`. Check for BOTH `kanbantic*` AND `plugin:*kanbantic*` key patterns.
+
+## 2026-03-27: OAuth cache poisoning — switch from HTTP to stdio proxy (v1.11.0)
+
+### Symptom
+Plugin works after install but breaks hours/days later with:
+```
+Status: ✔ connected
+Auth: ✘ not authenticated
+Error: Incompatible auth server: does not support dynamic client registration
+```
+Other workstations (freshly installed) still work. Reinstalling fixes it temporarily.
+
+### Diagnosis
+1. All OAuth discovery endpoints on server return 404 — confirmed removed
+2. `curl` with Bearer token returns 200 — server auth works
+3. BUT `~/.claude/.credentials.json` contains **cached OAuth state**:
+   ```json
+   "mcpOAuth": {
+     "kanbantic|ebb553eb8a20c559": {
+       "accessToken": "",
+       "expiresAt": 0,
+       "discoveryState": {
+         "authorizationServerUrl": "https://kanbantic.com/"
+       }
+     }
+   }
+   ```
+4. This cached `discoveryState` forces Claude Code into OAuth mode permanently
+5. Claude Code tries dynamic client registration against `https://kanbantic.com/` → fails
+6. Static Bearer headers from `.mcp.json` are never used
+
+### Root Cause: OAuth cache poisoning cycle
+
+**The fundamental design flaw**: relying on HTTP transport with static Bearer headers while Claude Code's MCP client has an OAuth-first authentication strategy.
+
+```
+1. Install cleans credentials → clean state
+2. Claude Code connects → sends Bearer header → WORKS
+3. [hours/days later] Something triggers a reconnect without headers
+   (CC update, server restart, network hiccup, config reload)
+4. Server returns 401 + WWW-Authenticate: Bearer
+5. Claude Code starts OAuth discovery flow:
+   - Tries /.well-known/oauth-protected-resource → 404
+   - Tries /.well-known/oauth-authorization-server → 404
+   - CACHES a discoveryState in .credentials.json anyway
+6. From now on, Claude Code uses cached OAuth route
+   instead of static Bearer header → BROKEN
+7. Only reinstall (which cleans credentials) fixes it → back to step 1
+```
+
+The cycle is unbreakable because:
+- Claude Code caches the *attempt*, not just the *result*
+- The cache persists across sessions in `.credentials.json`
+- Any reconnect without headers re-poisons the cache
+- Server-side fixes (removing OAuth endpoints) don't help — the cache is client-side
+
+### Fix: stdio proxy (v1.11.0)
+
+Replaced HTTP transport with a **local stdio proxy** — a zero-dependency Node.js script that bridges stdio (Claude Code) ←→ HTTP (Kanbantic MCP server).
+
+```
+BEFORE (fragile):
+Claude Code ──HTTP+Bearer──→ kanbantic.com/mcp
+             ←401/OAuth discovery→  (cache poisoning)
+
+AFTER (bulletproof):
+Claude Code ──stdio──→ kanbantic-mcp-proxy.js ──HTTP+Bearer──→ kanbantic.com/mcp
+             (no OAuth)     (always sends token)     (no 401 seen by CC)
+```
+
+**Why stdio eliminates all issues:**
+- stdio transport has NO OAuth flow — it's a pipe, not HTTP
+- No credentials cache — nothing to poison
+- Proxy always sends Bearer header — server never returns 401
+- Immune to Claude Code version changes affecting HTTP transport
+- Same pattern used by Playwright, filesystem, and 95% of MCP plugins
+
+**Changes:**
+1. **Added `plugin/proxy/kanbantic-mcp-proxy.js`** (~80 lines, zero npm dependencies):
+   - Reads JSON-RPC from stdin (from Claude Code)
+   - Forwards as HTTP POST with `Authorization: Bearer <key>` to server
+   - Parses SSE/JSON responses from server
+   - Writes JSON-RPC responses to stdout (to Claude Code)
+   - Serializes requests to preserve session state (Mcp-Session-Id)
+   - Graceful error handling with JSON-RPC error responses
+   - 120-second timeout for long operations
+
+2. **Updated `plugin/.mcp.json`** — stdio instead of HTTP:
+   ```json
+   {
+     "kanbantic": {
+       "command": "node",
+       "args": ["${CLAUDE_PLUGIN_ROOT}/proxy/kanbantic-mcp-proxy.js"],
+       "env": { "KANBANTIC_API_KEY": "${KANBANTIC_API_KEY}" }
+     }
+   }
+   ```
+
+3. **Bumped version** to 1.11.0
+
+### Impact on install script
+The install script's MCP config steps (writing project-root `.mcp.json`) are **no longer needed** for new installs. The plugin-bundled `.mcp.json` now uses stdio transport which works reliably everywhere. The script should:
+- Stop writing project-root `.mcp.json` files with HTTP config
+- Clean up existing project-root `.mcp.json` files with old HTTP config
+- Clean up `mcpOAuth` entries in `.credentials.json` (for migration from HTTP)
+- Still verify `KANBANTIC_API_KEY` is set
+
+### Troubleshooting checklist (updated for v1.11.0)
+
+1. **`KANBANTIC_API_KEY`** — set as Windows User env var, starts with `ka_`
+2. **Node.js** — must be installed (`node --version`)
+3. **Plugin enabled** — `.claude/settings.json` has `enabledPlugins` with `kanbantic-claude-plugin@kanbantic: true`
+4. **No stale project-root `.mcp.json`** — remove old HTTP configs (they would create a duplicate MCP server)
+5. **No stale OAuth** — `~/.claude/.credentials.json` should have no kanbantic entries in `mcpOAuth`
+6. **Server reachable** — `curl -X POST https://kanbantic.com/mcp -H "Authorization: Bearer $KEY"` returns 200
+7. **Restart Claude Code** — plugin changes require a restart

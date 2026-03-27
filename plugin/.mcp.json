@@ -1,9 +1,9 @@
 {
   "kanbantic": {
-    "type": "http",
-    "url": "https://kanbantic.com/mcp",
-    "headers": {
-      "Authorization": "Bearer ${KANBANTIC_API_KEY}"
+    "command": "node",
+    "args": ["${CLAUDE_PLUGIN_ROOT}/proxy/kanbantic-mcp-proxy.js"],
+    "env": {
+      "KANBANTIC_API_KEY": "${KANBANTIC_API_KEY}"
     }
   }
 }

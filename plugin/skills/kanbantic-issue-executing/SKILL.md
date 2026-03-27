@@ -30,6 +30,35 @@ Execute implementation work for any issue type. Handles two modes:
 Tasks can ONLY be started (set to InProgress) when the parent issue is in **InProgress** status. If the issue is not InProgress, you MUST claim it first (Step 1) before working on any task. NEVER start a task on an issue that is still in New, Triaged, or any other non-InProgress status.
 </HARD-GATE>
 
+## Step 0: Ensure Repository Access
+
+Before starting, verify you have local access to the workspace's code repository:
+
+1. Run `git remote -v` to check if you're in a git repository
+2. If already in the correct repository, skip to Step 1a
+3. If no repository or wrong repository:
+   ```
+   MCP: mcp__kanbantic__list_repositories(workspaceId)
+   ```
+   If the issue has an `applicationId`, choose the repository linked to that application. Otherwise use the first active repository.
+   ```
+   MCP: mcp__kanbantic__get_repository(repositoryId)  // → includes cloneUrl, gitAuthorName, gitAuthorEmail
+   MCP: mcp__kanbantic__get_repository_credential(repositoryId)  // → PAT token for authentication
+   ```
+   Then clone and configure:
+   ```bash
+   git clone https://<credential>@github.com/<org>/<repo>.git
+   cd <repo>
+   git config user.name "<gitAuthorName>"
+   git config user.email "<gitAuthorEmail>"
+   ```
+
+<IMPORTANT>
+- If no repository is configured in the workspace, skip this step and proceed — not all work requires code access.
+- If no credential is configured, tell the user: "No repository credential found. Configure a PAT token via Workspace → Repositories → Credentials in the Kanbantic UI."
+- If the repo is already cloned, run `git pull` to get the latest code. Branch creation happens in Step 1b.
+</IMPORTANT>
+
 ## Step 1a: Check Readiness
 
 Before claiming, verify the issue is ready to start:

@@ -21,6 +21,36 @@ Review completed implementation against Kanbantic specifications and test cases.
 4. **Record feedback** — discussion entry with categorized issues
 5. **Decide** — approve or reject phase
 
+## Step 0: Ensure Repository Access
+
+Before starting, verify you have local access to the workspace's code repository:
+
+1. Run `git remote -v` to check if you're in a git repository
+2. If already in the correct repository, skip to Step 1
+3. If no repository or wrong repository:
+   ```
+   MCP: mcp__kanbantic__list_repositories(workspaceId)
+   ```
+   If the issue has an `applicationId`, choose the repository linked to that application. Otherwise use the first active repository.
+   ```
+   MCP: mcp__kanbantic__get_repository(repositoryId)  // → includes cloneUrl, gitAuthorName, gitAuthorEmail
+   MCP: mcp__kanbantic__get_repository_credential(repositoryId)  // → PAT token for authentication
+   ```
+   Then clone and configure:
+   ```bash
+   git clone https://<credential>@github.com/<org>/<repo>.git
+   cd <repo>
+   git config user.name "<gitAuthorName>"
+   git config user.email "<gitAuthorEmail>"
+   ```
+4. Ensure you're on the branch being reviewed (checkout if needed)
+
+<IMPORTANT>
+- If no repository is configured in the workspace, skip this step and proceed — not all work requires code access.
+- If no credential is configured, tell the user: "No repository credential found. Configure a PAT token via Workspace → Repositories → Credentials in the Kanbantic UI."
+- If the repo is already cloned, ensure you're on the branch being reviewed before proceeding.
+</IMPORTANT>
+
 ## Step 1: Load Context
 
 ```

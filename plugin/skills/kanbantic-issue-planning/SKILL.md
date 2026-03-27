@@ -43,6 +43,36 @@ Check the issue type. If it is NOT an Epic, **STOP** and inform the user:
 
 Only proceed if the issue type is **Epic**.
 
+## Step 0b: Ensure Repository Access
+
+Before exploring code, verify you have local access to the workspace's code repository:
+
+1. Run `git remote -v` to check if you're in a git repository
+2. If already in the correct repository, skip to Step 1
+3. If no repository or wrong repository:
+   ```
+   MCP: mcp__kanbantic__list_repositories(workspaceId)
+   ```
+   If the issue has an `applicationId`, choose the repository linked to that application. Otherwise use the first active repository.
+   ```
+   MCP: mcp__kanbantic__get_repository(repositoryId)  // → includes cloneUrl, gitAuthorName, gitAuthorEmail
+   MCP: mcp__kanbantic__get_repository_credential(repositoryId)  // → PAT token for authentication
+   ```
+   Then clone and configure:
+   ```bash
+   git clone https://<credential>@github.com/<org>/<repo>.git
+   cd <repo>
+   git config user.name "<gitAuthorName>"
+   git config user.email "<gitAuthorEmail>"
+   ```
+4. For **planning**: stay on the default branch (read-only access)
+
+<IMPORTANT>
+- If no repository is configured in the workspace, skip this step and proceed — not all work requires code access.
+- If no credential is configured, tell the user: "No repository credential found. Configure a PAT token via Workspace → Repositories → Credentials in the Kanbantic UI."
+- If the repo is already cloned but on the wrong branch, run `git checkout main && git pull` to get the latest code.
+</IMPORTANT>
+
 ## Step 1: Load Issue Context
 
 ```

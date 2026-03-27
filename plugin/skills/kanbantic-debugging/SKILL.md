@@ -28,6 +28,35 @@ If you haven't completed Phase 1, you cannot propose fixes.
 6. **Document** — root cause analysis in discussion
 7. **Complete** — update issue status
 
+## Step 0: Ensure Repository Access
+
+Before starting, verify you have local access to the workspace's code repository:
+
+1. Run `git remote -v` to check if you're in a git repository
+2. If already in the correct repository, skip to Step 1
+3. If no repository or wrong repository:
+   ```
+   MCP: mcp__kanbantic__list_repositories(workspaceId)
+   ```
+   If the issue has an `applicationId`, choose the repository linked to that application. Otherwise use the first active repository.
+   ```
+   MCP: mcp__kanbantic__get_repository(repositoryId)  // → includes cloneUrl, gitAuthorName, gitAuthorEmail
+   MCP: mcp__kanbantic__get_repository_credential(repositoryId)  // → PAT token for authentication
+   ```
+   Then clone and configure:
+   ```bash
+   git clone https://<credential>@github.com/<org>/<repo>.git
+   cd <repo>
+   git config user.name "<gitAuthorName>"
+   git config user.email "<gitAuthorEmail>"
+   ```
+
+<IMPORTANT>
+- If no repository is configured in the workspace, skip this step and proceed — not all work requires code access.
+- If no credential is configured, tell the user: "No repository credential found. Configure a PAT token via Workspace → Repositories → Credentials in the Kanbantic UI."
+- If the repo is already cloned, run `git pull` to get the latest code. Branch creation happens in Step 1.
+</IMPORTANT>
+
 ## Step 1: Load and Claim Bug
 
 ```

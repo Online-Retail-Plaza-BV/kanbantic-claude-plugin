@@ -20,9 +20,28 @@
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
+const { execSync } = require('child_process');
 
 const MCP_URL = process.env.KANBANTIC_MCP_URL || 'https://kanbantic.com/mcp';
-const API_KEY = process.env.KANBANTIC_API_KEY;
+let API_KEY = process.env.KANBANTIC_API_KEY;
+
+// Claude Desktop and Cowork launch the proxy as a child of a GUI process that
+// inherits its environment from explorer.exe at sign-in. User env vars added
+// afterwards are invisible to them until the user signs out and back in. Fall
+// back to HKCU\Environment so the key is resolvable without that cycle and
+// without requiring a literal secret in claude_desktop_config.json.
+if (!API_KEY && process.platform === 'win32') {
+  try {
+    const out = execSync('reg query HKCU\\Environment /v KANBANTIC_API_KEY', {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const m = out.match(/KANBANTIC_API_KEY\s+REG_(?:SZ|EXPAND_SZ)\s+(.+)/i);
+    if (m) API_KEY = m[1].trim();
+  } catch {
+    // Value absent; handled at dispatch time with a clear JSON-RPC error.
+  }
+}
 
 let sessionId = null;
 let stdinEnded = false;
@@ -92,8 +111,9 @@ async function dispatch(line) {
         jsonrpc: '2.0',
         error: {
           code: -32603,
-          message: 'KANBANTIC_API_KEY environment variable is not set. '
-            + 'Set it as a Windows User environment variable and restart Claude Code.'
+          message: 'KANBANTIC_API_KEY not found in environment or Windows User registry. '
+            + 'Set it via System Properties → Environment Variables → User variables, '
+            + 'then restart the host application.'
         },
         id: msg.id,
       });

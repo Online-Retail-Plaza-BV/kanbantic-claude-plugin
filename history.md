@@ -1,5 +1,36 @@
 # Kanbantic Claude Plugin - Troubleshooting History
 
+## 2026-04-19: Claude Desktop cannot resolve `KANBANTIC_API_KEY` (v1.14.0)
+
+### Symptom
+User installs the plugin in Claude Desktop. Skills appear correctly under "Personal plugins → Kanbantic claude plugin". The MCP proxy entry shows up under "Connectors" with `command: node`, `args: ${CLAUDE_PLUGIN_ROOT}/proxy/kanbantic-mcp-proxy.js`, `env: KANBANTIC_API_KEY=${KANBANTIC_API_KEY}`. On every invocation the proxy logs `KANBANTIC_API_KEY not set` and returns JSON-RPC error -32603, even though the variable is set as a Windows User Environment Variable and visible in every new PowerShell window.
+
+Separately, attempting "Add Custom Connector" in the Desktop UI redirects to `claude.ai/api/organizations/.../mcp/start-auth/...?product_surface=cowork`, which then returns "Couldn't reach the MCP server (ofid_...)".
+
+### Diagnosis
+Two independent issues, shared root context:
+
+1. **Desktop does not load `plugin/.mcp.json` nor expand `${CLAUDE_PLUGIN_ROOT}` / `${KANBANTIC_API_KEY}`.** The Desktop UI surfaces the plugin's `.mcp.json` as "Connectors" for display, but it's Claude Code's plugin system that actually binds those entries at runtime — Desktop doesn't. Even when the user manually copies the entry to `claude_desktop_config.json`, Desktop starts `node kanbantic-mcp-proxy.js` as a child of a GUI process whose environment was inherited from `explorer.exe` at sign‑in. User env vars added afterwards are invisible until the user signs out and back in.
+
+2. **The Custom Connector route (claude.ai OAuth broker) is fundamentally incompatible with the current MCP server.** The broker probes `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, both of which were intentionally removed (see 2026-03-09 entries) to defeat Claude Code's OAuth cache poisoning. Broker gives up with a misleading "Couldn't reach the MCP server" error. Each failed attempt can also write `mcpOAuth` entries to `%APPDATA%\Claude\.credentials.json` that later poison the stdio route too.
+
+### Fix
+**v1.14.0** — proxy now reads `KANBANTIC_API_KEY` from `HKCU\Environment` as a fallback when `process.env.KANBANTIC_API_KEY` is empty, using `reg query`. Supports both `REG_SZ` and `REG_EXPAND_SZ`. Windows‑only fallback; non‑Windows platforms unchanged.
+
+**README updates:**
+- Desktop setup now promotes the bundled proxy (no literal key) as the primary path. `mcp-remote` demoted to "alternative for users who prefer no plugin‑cache path drift".
+- Explicit warning: do not use "Add Custom Connector" in the Desktop UI.
+- Troubleshooting updated: sign‑out/sign‑in is no longer required for Desktop with v1.14.0+.
+
+### Files changed
+- `plugin/proxy/kanbantic-mcp-proxy.js` — registry fallback at startup, clearer error message when both env and registry miss.
+- `plugin/.claude-plugin/plugin.json` — version 1.14.0.
+- `.claude-plugin/marketplace.json` — version 1.14.0.
+- `plugin/README.md` — Desktop section rewritten; troubleshooting items 2‑4 updated.
+
+### Guidance for stale state
+If Desktop was previously attempted via "Add Custom Connector", clean `%APPDATA%\Claude\.credentials.json` — remove any `mcpOAuth` entries containing `kanbantic` — before the new v1.14.0 config is loaded. Stale OAuth state will otherwise override the Bearer auth used by the proxy.
+
 ## 2026-03-08: MCP Server "Auth: not authenticated" after plugin install
 
 ### Symptom

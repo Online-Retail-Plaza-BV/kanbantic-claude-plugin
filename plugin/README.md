@@ -105,11 +105,49 @@ claude plugin install kanbantic-claude-plugin@kanbantic
 
 Claude Desktop does not honor Claude Code's plugin system, so it cannot use the bundled `plugin/.mcp.json` and the `${CLAUDE_PLUGIN_ROOT}` placeholder. You must register an stdio bridge manually in `%APPDATA%\Claude\claude_desktop_config.json`.
 
-**Recommended approach: `mcp-remote`.** It's Anthropic's standard stdio↔HTTP bridge, maintained upstream, and keeps itself up to date through `npx`. No absolute paths to pin, no version‑folder drift when the plugin updates.
+> **Do not** use "Add Custom Connector" in the Desktop UI. That flow routes through claude.ai's OAuth broker, which requires OAuth 2.1 / DCR discovery endpoints — these are intentionally absent on the Kanbantic MCP server (see Architecture). You will get "Couldn't reach the MCP server", and each attempt can leave stale entries in `%APPDATA%\Claude\.credentials.json` that later interfere with the stdio routes below.
 
-### 1. Edit `claude_desktop_config.json`
+**Recommended approach: bundled proxy with the `KANBANTIC_API_KEY` User env var.** Since v1.14.0 the proxy reads the key from `HKCU\Environment` as a fallback, so Desktop no longer needs to inherit the env var from `explorer.exe` and you do **not** need to embed the key literally in the config.
+
+### 1. Set the User environment variable
+
+Follow the "Setup — shared step: set the API key" section above. A full sign‑out is **no longer required** for Desktop — the proxy reads directly from the registry if the variable isn't in the inherited environment.
+
+### 2. Edit `claude_desktop_config.json`
 
 Open (or create) `%APPDATA%\Claude\claude_desktop_config.json` and add:
+
+```json
+{
+  "mcpServers": {
+    "kanbantic": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\<YourUsername>\\.claude\\plugins\\cache\\kanbantic\\kanbantic-claude-plugin\\<version>\\proxy\\kanbantic-mcp-proxy.js"
+      ]
+    }
+  }
+}
+```
+
+Notes:
+
+- The server **name** must be `kanbantic` (not `framework` or anything else). The plugin skills reference tools as `mcp__kanbantic__*`; any other name causes "tool not found" errors.
+- Replace `<YourUsername>` with your Windows user name and `<version>` with the currently installed plugin version (e.g. `1.14.0`). You'll need to update `<version>` whenever the plugin updates — or switch to the `mcp-remote` alternative below if you'd rather not.
+- No `env` block is needed: the proxy picks up `KANBANTIC_API_KEY` from the inherited environment, and falls back to `HKCU\Environment` on Windows.
+- Do **not** add a `"type": "http"` entry for Kanbantic. It hits the OAuth cache poisoning bug described in the Architecture section.
+
+### 3. Restart Claude Desktop
+
+Close the app completely (including the system tray icon) and relaunch.
+
+### 4. Verify
+
+Ask Claude Desktop: *"List my Kanbantic issues."* You should see tools named `mcp__kanbantic__list_issues`, `mcp__kanbantic__get_issue`, etc. being invoked. If you see a 401 or "KANBANTIC_API_KEY not found", re‑check that the User env var is set correctly: `reg query HKCU\Environment /v KANBANTIC_API_KEY` in a PowerShell window must return your key.
+
+### Alternative: `mcp-remote` with literal API key
+
+If you'd rather avoid the hardcoded plugin-cache path (which changes with each plugin update), point Claude Desktop at `mcp-remote` instead:
 
 ```json
 {
@@ -130,52 +168,16 @@ Open (or create) `%APPDATA%\Claude\claude_desktop_config.json` and add:
 }
 ```
 
-Notes:
-
-- The server **name** must be `kanbantic` (not `framework` or anything else). The plugin skills reference tools as `mcp__kanbantic__*`; any other name causes "tool not found" errors.
-- Use the **literal** API key in the `--header` argument. Claude Desktop does not expand `${KANBANTIC_API_KEY}`; you'd otherwise be passing the literal string `${KANBANTIC_API_KEY}` to the server, which returns 401.
-- `cmd /c` is required on Windows so `npx.cmd` resolves correctly; without it, Claude Desktop tries to exec `npx` directly and fails with "ENOENT".
-- Treat this file as a secret (contains your API key) — don't commit it, don't share it.
-- Do **not** add a `"type": "http"` entry for Kanbantic. It hits the OAuth cache poisoning bug described in the Architecture section.
-
-### 2. Restart Claude Desktop
-
-Close the app completely (including the system tray icon) and relaunch. A full Windows sign‑out is not needed for this flow because the API key is embedded literally in the config — you're not relying on User environment variables.
-
-### 3. Verify
-
-Ask Claude Desktop: *"List my Kanbantic issues."* You should see tools named `mcp__kanbantic__list_issues`, `mcp__kanbantic__get_issue`, etc. being invoked. If you see a 401 or "KANBANTIC_API_KEY not set", re‑check the API key in `--header`.
-
-### Alternative: bundled custom proxy
-
-If you prefer not to depend on `npx`/`mcp-remote` (e.g. restricted network, no Node ecosystem access beyond what's already installed), you can point Claude Desktop at the plugin's bundled proxy instead:
-
-```json
-{
-  "mcpServers": {
-    "kanbantic": {
-      "command": "node",
-      "args": [
-        "C:\\Users\\<YourUsername>\\.claude\\plugins\\cache\\kanbantic\\kanbantic-claude-plugin\\<version>\\proxy\\kanbantic-mcp-proxy.js"
-      ],
-      "env": {
-        "KANBANTIC_API_KEY": "ka_your-agent_your-key"
-      }
-    }
-  }
-}
-```
-
-Caveat: `<version>` is hardcoded in the path — you'll need to update this block each time the plugin version changes. For that reason `mcp-remote` is the recommended route for Desktop.
+Caveats: the API key is embedded **literally** in the config (treat the file as a secret — don't commit or share it), and `cmd /c` is required on Windows so `npx.cmd` resolves correctly.
 
 ## Troubleshooting
 
 When the MCP server doesn't respond, check in this order:
 
 1. **Server name is `kanbantic`** (Desktop) — in `claude_desktop_config.json` the `mcpServers` key must be exactly `kanbantic`. Other names (e.g. `framework`) register tools under the wrong prefix and every skill fails with "tool not found".
-2. **API key is literal** (Desktop) — no `${KANBANTIC_API_KEY}` placeholders anywhere in `claude_desktop_config.json`; Claude Desktop does not expand them.
-3. **`KANBANTIC_API_KEY` env var** (Claude Code) — set as Windows User env var, starts with `ka_`. Verify in a **new** PowerShell window: `echo $env:KANBANTIC_API_KEY`. For Claude Desktop this step is not applicable — the key lives inline in the config.
-4. **Full sign‑out/sign‑in after changing User env vars** (Claude Code using env var). GUI apps don't pick up env var changes from a mere restart.
+2. **API key resolution** — the proxy reads `KANBANTIC_API_KEY` from (a) `process.env`, (b) `HKCU\Environment` on Windows as fallback. Verify with `reg query HKCU\Environment /v KANBANTIC_API_KEY` — the value must start with `ka_`. If you're using the `mcp-remote` alternative, the key must instead appear literally in the `--header` argument and no `${...}` placeholders are allowed.
+3. **Claude Code env var flow** — Code expands `${KANBANTIC_API_KEY}` from the inherited environment. Verify in a **new** PowerShell window: `echo $env:KANBANTIC_API_KEY`.
+4. **Sign‑out/sign‑in is no longer required for Desktop** (v1.14.0+). The proxy reads the registry directly, bypassing explorer.exe's env inheritance. For Claude Code, a new terminal window is still enough; GUI apps launched from an old explorer.exe session may still need sign‑out if they relied on `${KANBANTIC_API_KEY}` expansion at config time.
 5. **Node.js is installed** — `node --version` returns a version. `npx` must be on PATH for the Desktop `mcp-remote` route.
 6. **Plugin is enabled** (Claude Code) — `.claude/settings.json` has `enabledPlugins` with `kanbantic-claude-plugin@kanbantic: true`.
 7. **No stale HTTP config** — no `.mcp.json` at any project root with a Kanbantic entry that uses `"type": "http"`. Remove any such entries.

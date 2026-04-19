@@ -668,3 +668,44 @@ No code changes — only documentation. The stdio proxy in `plugin/proxy/kanbant
 
 ### Lesson learned
 Every prior "Claude Desktop" entry contained a warning that expansion / env var inheritance was "unknown" or "not yet verified", yet the README never got updated to reflect those caveats. New hosts need their own setup section — not a single "Windows" section that assumes Claude Code behavior.
+
+## 2026-04-19: Desktop uses `mcp-remote` — v1.13.1 README patch
+
+### Context
+While helping Ronald debug his Claude Desktop setup, we discovered his `claude_desktop_config.json` already used `npx -y mcp-remote@latest` as the stdio bridge (named `"framework"`, not `"kanbantic"`). This worked — `mcp-remote` is Anthropic's standard stdio↔HTTP bridge and handles the same OAuth‑poisoning avoidance we built our custom proxy for.
+
+### What v1.13.0 got wrong for Desktop
+The v1.13.0 README instructed Desktop users to point at the bundled `plugin/proxy/kanbantic-mcp-proxy.js` via an absolute path that includes the plugin version (e.g. `...\kanbantic-claude-plugin\1.13.0\proxy\...`). That path breaks on every plugin version bump — silent failure mode: users upgrade the plugin, Desktop keeps pointing at the no‑longer‑existing version folder, nothing works.
+
+### Fix (v1.13.1, docs only)
+Rewrote the "Setup — Claude Desktop" section of `plugin/README.md`:
+
+1. **Primary recipe now uses `mcp-remote@latest`** via `npx`:
+   ```json
+   {
+     "mcpServers": {
+       "kanbantic": {
+         "command": "cmd",
+         "args": [
+           "/c", "npx", "-y", "mcp-remote@latest",
+           "https://kanbantic.com/mcp",
+           "--header", "Authorization: Bearer ka_…"
+         ]
+       }
+     }
+   }
+   ```
+   No absolute paths, no version pinning, auto‑updates via npx.
+
+2. **Explicit warning that the server name must be `kanbantic`** — Ronald's original config had `"framework"` as the key, which registered tools under `mcp__framework__*`. All 117 skill references in the plugin expect `mcp__kanbantic__*`; mismatching names silently breaks every skill with "tool not found".
+
+3. **Bundled custom proxy kept as an "Alternative" section** for users who can't / don't want to use `npx`. The caveat about version‑pinned paths is called out explicitly there.
+
+4. **Troubleshooting checklist reordered**: server‑name check is now step 1, literal‑key check is step 2 — these are the two Desktop‑specific failure modes that every other step is downstream of.
+
+5. **Bumped version** to 1.13.1 in `plugin/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+
+No code changes — `kanbantic-mcp-proxy.js` is unchanged and still the primary path for Claude Code via `plugin/.mcp.json` / `${CLAUDE_PLUGIN_ROOT}`.
+
+### Takeaway
+Recommend the community/Anthropic‑maintained tool (`mcp-remote`) when the user's host doesn't give us plugin‑resolved paths. The bundled proxy is only worth it when we control the path resolution (Claude Code plugin system). For every other host, `npx -y mcp-remote@latest` is simpler and more robust.

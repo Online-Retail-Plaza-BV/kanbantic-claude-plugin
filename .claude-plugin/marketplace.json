@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "kanbantic-claude-plugin",
-      "version": "1.13.0",
+      "version": "1.13.1",
       "source": "./plugin",
       "description": "Issue lifecycle skills: design, report bugs, plan, execute, review, and debug — all artifacts via Kanbantic MCP"
     }

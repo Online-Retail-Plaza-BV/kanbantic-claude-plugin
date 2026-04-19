@@ -617,3 +617,54 @@ The install script's MCP config steps (writing project-root `.mcp.json`) are **n
 5. **No stale OAuth** — `~/.claude/.credentials.json` should have no kanbantic entries in `mcpOAuth`
 6. **Server reachable** — `curl -X POST https://kanbantic.com/mcp -H "Authorization: Bearer $KEY"` returns 200
 7. **Restart Claude Code** — plugin changes require a restart
+
+## 2026-04-19: Claude Desktop (Windows App) cannot see `KANBANTIC_API_KEY` — v1.13.0
+
+### Symptom
+On Windows, the Claude Desktop app reports that the Kanbantic MCP server is unreachable / not authenticated, while the exact same `KANBANTIC_API_KEY` works correctly in Claude Code (PowerShell can `echo $env:KANBANTIC_API_KEY` and the proxy connects fine there).
+
+### Diagnosis
+Three overlapping causes — all already hinted at in earlier entries, but never consolidated:
+
+1. **Windows GUI apps inherit environment from `explorer.exe`, not from PowerShell.** Setting `KANBANTIC_API_KEY` as a User Environment Variable via Control Panel broadcasts `WM_SETTINGCHANGE`, but Claude Desktop does not listen for that message. Its env block is frozen at the moment its parent `explorer.exe` was started — i.e. at the last Windows sign‑in. "Restart Claude" is not enough; the user must **sign out and back in** (or reboot) for the app to see the new variable.
+2. **Claude Desktop's `${VAR}` expansion in `claude_desktop_config.json` is unreliable.** In multiple incidents the literal string `${KANBANTIC_API_KEY}` was passed through to the stdio proxy, which then correctly reported `KANBANTIC_API_KEY not set`. See the 2026‑03‑09 "Claude Desktop app cannot connect" entry — this was flagged as "Not yet verified" and has now been confirmed as unreliable.
+3. **The v1.12 README still documented the old HTTP config** (`"type": "http"` with `Authorization: Bearer ${KANBANTIC_API_KEY}` header). Users who followed the README on Desktop installed the exact configuration that v1.11 removed for being susceptible to OAuth cache poisoning — guaranteed to break within hours.
+
+### Fix (v1.13.0)
+**1. Rewrote `plugin/README.md`** to remove all references to the HTTP config, and to split setup into two explicit sections:
+
+- **Claude Code** — uses the bundled `plugin/.mcp.json` stdio proxy automatically. No user action beyond setting `KANBANTIC_API_KEY` and restarting the terminal.
+- **Claude Desktop (Windows App)** — requires a manual `%APPDATA%\Claude\claude_desktop_config.json` entry with:
+  - **Absolute path** to the proxy (not `${CLAUDE_PLUGIN_ROOT}` — Claude Desktop does not expand it).
+  - **Literal API key** in the `env` block instead of `${KANBANTIC_API_KEY}`.
+  - **Sign‑out/sign‑in** after editing, not just app restart.
+
+2. **Explicit Windows env‑var warning** added to the shared setup section, explaining the `WM_SETTINGCHANGE` / `explorer.exe` inheritance gotcha. This was previously undocumented and is the single most frequent support question.
+
+3. **Updated troubleshooting checklist** to call out both hosts:
+   - Claude Code credentials at `~/.claude/.credentials.json`
+   - Claude Desktop credentials at `%APPDATA%\Claude\.credentials.json` (separate file, separate cleanup needed)
+
+4. **Bumped version** to 1.13.0 in `plugin/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+
+No code changes — only documentation. The stdio proxy in `plugin/proxy/kanbantic-mcp-proxy.js` already handles both hosts correctly once the config is right; the problem was purely that users were configuring the Desktop app with a recipe that can't work.
+
+### Example `claude_desktop_config.json` (reference)
+```json
+{
+  "mcpServers": {
+    "kanbantic": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\<You>\\.claude\\plugins\\cache\\kanbantic\\kanbantic-claude-plugin\\1.13.0\\proxy\\kanbantic-mcp-proxy.js"
+      ],
+      "env": {
+        "KANBANTIC_API_KEY": "ka_dev-yourname_abc123..."
+      }
+    }
+  }
+}
+```
+
+### Lesson learned
+Every prior "Claude Desktop" entry contained a warning that expansion / env var inheritance was "unknown" or "not yet verified", yet the README never got updated to reflect those caveats. New hosts need their own setup section — not a single "Windows" section that assumes Claude Code behavior.

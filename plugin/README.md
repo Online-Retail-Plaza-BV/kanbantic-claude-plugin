@@ -87,13 +87,13 @@ Claude Code is supported out of the box. The bundled `plugin/.mcp.json` register
 
 Claude Code expands both `${CLAUDE_PLUGIN_ROOT}` and `${KANBANTIC_API_KEY}` correctly. Nothing else is required.
 
-**Installation:**
+**Installation** — run the hosted installer (one‑liner, no clone required):
 
 ```powershell
-.\reinstall-kanbantic-plugin.ps1
+irm https://kanbantic.com/install.ps1 | iex
 ```
 
-Or via the marketplace:
+Or via the marketplace directly:
 
 ```bash
 claude plugin install kanbantic-claude-plugin@kanbantic

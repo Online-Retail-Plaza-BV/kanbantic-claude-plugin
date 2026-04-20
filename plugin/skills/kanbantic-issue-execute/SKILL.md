@@ -1,33 +1,39 @@
 ---
-name: kanbantic-issue-executing
-description: "Use when a Kanbantic issue needs to be implemented. For Epics: executes the Implementation Plan phase by phase with review gates. For Features/Bugs: executes tasks directly without phases. Claims the issue first (InProgress required before any task work)."
+name: kanbantic-issue-execute
+description: "Use when a Kanbantic issue needs to be implemented (Triaged + ready to claim). For Epics: executes the Implementation Plan phase by phase with per-phase push. For Features/Bugs: executes tasks directly without phases. Ends at status Review — handoff to kanbantic-issue-review for merge/close."
 ---
 
-# Kanbantic Issue Executing
+# Kanbantic Issue Execute
 
 ## Overview
 
 Execute implementation work for any issue type. Handles two modes:
-- **Epics**: execute the Implementation Plan phase by phase with review gates between phases
-- **Features / Bugs**: execute tasks directly without phases or Implementation Plan
+- **Epics**: execute the Implementation Plan phase by phase, push after each phase, request per-phase review
+- **Features / Bugs**: execute tasks directly without phases; single push + handoff at the end
 
-**Principle:** Claim issue (InProgress) → Read tasks + knowledge from Kanbantic → Implement code → Update status + knowledge in Kanbantic.
+**Principle:** Claim issue (InProgress) → Read tasks + knowledge from Kanbantic → Implement code → Push → Update status + knowledge in Kanbantic. Stop at Review.
 
-**Announce at start:** "I'm using the kanbantic-issue-executing skill to implement this issue."
+**Announce at start:** "I'm using the kanbantic-issue-execute skill to implement this issue."
+
+## Scope
+
+This skill owns the **InProgress → Review** transition. It does NOT merge, close the issue, or finalize knowledge extraction — those belong to `kanbantic-issue-review` and run after a positive review verdict.
 
 ## Checklist
 
-1. **Claim issue** — set status to InProgress, record branch
-2. **Load plan + knowledge** — get phases/tasks AND project patterns from Kanbantic
-3. **Execute** — depends on issue type:
-   - **Epic** (has Implementation Plan): execute per phase with review gates
+1. **Gate-check** — verify issue is Triaged + ready to claim (HARD GATE)
+2. **Claim issue** — set status to InProgress, record branch
+3. **Load plan + knowledge** — get phases/tasks AND project patterns from Kanbantic
+4. **Execute** — depends on issue type:
+   - **Epic** (has Implementation Plan): execute per phase with per-phase push + review gates
    - **Feature / Bug** (no Implementation Plan): execute tasks directly
-4. **Update knowledge** — store corrections or new discoveries in Toolkit/Library
-5. **Run E2E tests** — invoke /test-e2e-local before completing (auto-trigger)
-6. **Complete** — set issue status to Review
+5. **Update knowledge** — store corrections or new discoveries in Toolkit/Library
+6. **Run E2E tests** — invoke /test-e2e-local before completing (auto-trigger)
+7. **Verify pre-conditions + transition to Review** — all tasks Done/Cancelled, all test cases Passed
+8. **Handoff** — instruct user/agent to invoke `kanbantic-issue-review`
 
 <HARD-GATE>
-Tasks can ONLY be started (set to InProgress) when the parent issue is in **InProgress** status. If the issue is not InProgress, you MUST claim it first (Step 1) before working on any task. NEVER start a task on an issue that is still in New, Triaged, or any other non-InProgress status.
+Tasks can ONLY be started (set to InProgress) when the parent issue is in **InProgress** status. If the issue is not InProgress, you MUST claim it first (Step 2) before working on any task. NEVER start a task on an issue that is still in New, Triaged, or any other non-InProgress status.
 </HARD-GATE>
 
 ## Step 0: Ensure Repository Access
@@ -35,7 +41,7 @@ Tasks can ONLY be started (set to InProgress) when the parent issue is in **InPr
 Before starting, verify you have local access to the workspace's code repository:
 
 1. Run `git remote -v` to check if you're in a git repository
-2. If already in the correct repository, skip to Step 1a
+2. If already in the correct repository, skip to Step 1
 3. If no repository or wrong repository:
    ```
    MCP: mcp__kanbantic__list_repositories(workspaceId)
@@ -56,47 +62,58 @@ Before starting, verify you have local access to the workspace's code repository
 <IMPORTANT>
 - If no repository is configured in the workspace, skip this step and proceed — not all work requires code access.
 - If no credential is configured, tell the user: "No repository credential found. Configure a PAT token via Workspace → Repositories → Credentials in the Kanbantic UI."
-- If the repo is already cloned, run `git pull` to get the latest code. Branch creation happens in Step 1b.
+- If the repo is already cloned, run `git pull` to get the latest code. Branch creation happens in Step 2.
 </IMPORTANT>
 
-## Step 1a: Check Readiness
+## Step 1: Gate-check — Triaged + Ready to Claim
 
-Before claiming, verify the issue is ready to start:
+Before claiming, verify the issue is in the right state and has the required artifacts:
 
 ```
 MCP: mcp__kanbantic__get_issue(issueId)
 ```
 
 Inspect the response:
-- **`IsReadyToClaim`**: If `true`, proceed to Step 1b.
-- **`IsReadyToClaim`**: If `false`, check `ReadinessChecks` for details:
-  - **Hard enforcement**: STOP. Tell the user which checks failed and what needs to be resolved before work can begin. Do not proceed.
-  - **Soft enforcement**: Warn the user which checks failed. Ask if they want to override. If yes, collect an `overrideReason` to pass in Step 1b.
 
-## Step 1b: Claim Issue and Create Branch
+<HARD-GATE>
+- **`status`**: MUST be `Triaged`. If the issue is in `New`, stop and tell the user:
+  > "This issue is still `New`. Triage it first via the `kanbantic-issue-triage` skill before execution can start."
+  If the issue is in `InProgress` already, resume execution from Step 3. Any other status (Review, Done, Cancelled) → stop and ask the user what they want.
+- **`isReadyToClaim`**: MUST be `true`. If `false`, check `readinessChecks`:
+  - **Hard enforcement**: STOP. Tell the user which checks failed and redirect them to `kanbantic-issue-prepare` to supply the missing artifacts (specifications / test cases / user stories) before execution can start. Do not proceed.
+  - **Soft enforcement**: Warn the user which checks failed. Ask if they want to override. If yes, collect an `overrideReason` to pass in Step 2.
+</HARD-GATE>
+
+The explicit `Triaged` check prevents execution of half-designed issues and couples this skill to the output of `kanbantic-issue-triage`. The explicit `isReadyToClaim` check prevents bypassing readiness gates.
+
+## Step 2: Claim Issue and Create Branch
 
 ```
 MCP: mcp__kanbantic__claim_issue(issueId, branch: "<branch-name>", overrideReason: "<if soft override>")
 ```
 
-Branch naming: `feature/<issue-code>-<short-description>` or `fix/<issue-code>-<short-description>`.
+Branch naming convention: `feature/<issue-code>-<short-slug>` for Features/Epics, `fix/<issue-code>-<short-slug>` for Bugs. The slug is a lowercase, hyphen-separated summary (max ~40 chars).
+
+Examples:
+- `feature/KBT-F163-issue-execute-rename`
+- `fix/KBT-B170-popover-width`
 
 Create the branch locally:
 ```bash
-git checkout -b feature/<issue-code>-<description>
+git checkout -b feature/<issue-code>-<slug>
 ```
 
 ## Workflow by Issue Type
 
 Not all issues follow the full phase workflow:
 
-- **Bug**: Simplified workflow — NO implementation plan or phases. Skip Step 2a (Load Plan), 3a (Unlock Phase), 3c (Mark Phase for Review), and 3d (Request Code Review per phase). Instead: load tasks directly, execute all fix tasks, then do a single code review at the end before completing.
-- **Feature**: Optional plan. If an implementation plan exists, follow the full phase workflow. If no plan exists, load tasks directly and execute them (skip phase-related steps 3a, 3c, 3d).
-- **Epic**: Full workflow required — implementation plan with phases, per-phase review, the complete process.
+- **Bug**: Simplified workflow — NO implementation plan or phases. Load tasks directly, execute all fix tasks, then transition to Review.
+- **Feature**: Optional plan. If an implementation plan exists, follow the full phase workflow. If no plan exists, load tasks directly and execute them (skip phase-related steps 4A.1, 4A.3, 4A.4).
+- **Epic**: Full workflow required — implementation plan with phases, per-phase review.
 
-## Step 2: Load Tasks + Project Knowledge
+## Step 3: Load Tasks + Project Knowledge
 
-### 2a: Load from Kanbantic
+### 3a: Load from Kanbantic
 
 First, determine the issue type:
 ```
@@ -123,9 +140,9 @@ MCP: mcp__kanbantic__list_tasks(issueId)
 MCP: mcp__kanbantic__list_discussion_entries(issueId)
 ```
 
-Read existing tasks and discussion context. If no tasks exist yet, you'll create them during execution (Step 3B).
+Read existing tasks and discussion context. If no tasks exist yet, you'll create them during execution (Step 4B.1).
 
-### 2b: Load Project Knowledge from Kanbantic
+### 3b: Load Project Knowledge from Kanbantic
 
 ```
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "ClaudeMd")
@@ -148,23 +165,23 @@ This gives you codebase patterns, known pitfalls, and architecture context.
 Do NOT launch Explore agents or do broad codebase exploration. The plan (tasks + KnowledgeExtraction entries) combined with Toolkit patterns and Library docs contain everything needed. Only do targeted file reads (Read tool) for specific files referenced in task descriptions when you need to see current line numbers or verify context.
 </IMPORTANT>
 
-## Step 3A: Execute Per Phase (Epics only)
+## Step 4A: Execute Per Phase (Epics only)
 
 Use this step for **Epics** that have an Implementation Plan with phases.
 
 For each unlocked phase:
 
-### 3A.1: Unlock Phase (if needed)
+### 4A.1: Unlock Phase (if needed)
 
 First phase is auto-unlocked. Subsequent phases unlock after the previous is approved:
 ```
 MCP: mcp__kanbantic__unlock_phase(issueId, phaseId)
 ```
 
-### 3A.2: Execute Tasks
+### 4A.2: Execute Tasks
 
 <IMPORTANT>
-Before starting any task, verify the issue is **InProgress**. If not, go back to Step 1 and claim it first.
+Before starting any task, verify the issue is **InProgress**. If not, go back to Step 2 and claim it first.
 </IMPORTANT>
 
 For each task in the phase:
@@ -190,40 +207,54 @@ MCP: mcp__kanbantic__add_discussion_entry(
 )
 ```
 
-**Commit after each task or logical group:**
+**Commit after each task or logical group (conventional commits):**
 ```bash
 git add <specific files>
-git commit -m "feat(<issue-code>): <task description>"
+git commit -m "<type>(<issue-code>): <task description>"
 ```
 
-### 3A.3: Mark Phase for Review
+Use conventional-commit types:
+- `feat` — new functionality
+- `fix` — bug fix (use for Bug issues)
+- `refactor` — refactor without behavior change
+- `docs` — documentation only
+- `test` — tests only
+- `chore` — infrastructure / tooling
 
-After all tasks in the phase are Done:
+### 4A.3: Push Phase + Mark for Review
+
+After all tasks in the phase are Done, **push the branch** so the reviewer can fetch it:
+
+```bash
+git push origin <branch>
+```
+
+Then mark the phase ready for review:
 ```
 MCP: mcp__kanbantic__mark_phase_for_review(issueId, phaseId)
 ```
 
-### 3A.4: Request Code Review
+### 4A.4: Request Code Review
 
-Invoke `kanbantic-code-review` to review the phase:
+Invoke `kanbantic-issue-review` to review the phase:
 ```
-Skill: kanbantic-code-review
+Skill: kanbantic-issue-review
 ```
 
-### 3A.5: Handle Review Result
+### 4A.5: Handle Review Result
 
-- **Approved**: proceed to next phase
-- **Rejected**: read rejection reason, fix issues, re-submit for review
+- **Approved**: proceed to next phase (unlock via 4A.1, repeat)
+- **Rejected**: read rejection reason, pick up the fix tasks the reviewer added, fix issues, commit, push, re-submit the phase for review
 
-## Step 3B: Execute Tasks Directly (Features / Bugs)
+## Step 4B: Execute Tasks Directly (Features / Bugs)
 
 Use this step for **Features** and **Bugs** that do NOT have an Implementation Plan.
 
 <IMPORTANT>
-Before starting any task, verify the issue is **InProgress**. If not, go back to Step 1 and claim it first.
+Before starting any task, verify the issue is **InProgress**. If not, go back to Step 2 and claim it first.
 </IMPORTANT>
 
-### 3B.1: Create Tasks (if none exist)
+### 4B.1: Create Tasks (if none exist)
 
 If the issue has no tasks yet, analyze the issue description, specifications, and discussion entries, then create tasks:
 
@@ -236,7 +267,7 @@ MCP: mcp__kanbantic__add_task(
 )
 ```
 
-### 3B.2: Execute Tasks
+### 4B.2: Execute Tasks
 
 For each task:
 
@@ -260,31 +291,31 @@ MCP: mcp__kanbantic__add_discussion_entry(
 )
 ```
 
-**Commit after each task or logical group:**
+**Commit after each task or logical group (conventional commits):**
 ```bash
 git add <specific files>
-git commit -m "feat(<issue-code>): <task description>"
+git commit -m "<type>(<issue-code>): <task description>"
 ```
 
-### 3B.3: Review (optional)
+### 4B.3: Push Branch
 
-After all tasks are done, optionally invoke code review:
+After all tasks are Done, push the branch so the reviewer can fetch it:
+```bash
+git push origin <branch>
 ```
-Skill: kanbantic-code-review
-```
 
-## Step 4: Update Knowledge Base
+## Step 5: Update Knowledge Base
 
-After all phases are implemented (before marking complete), update the project knowledge:
+After all phases are implemented (before Step 6), update the project knowledge:
 
-### 4a: Correct Outdated Patterns
+### 5a: Correct Outdated Patterns
 
 If any Toolkit pattern was incorrect or outdated during implementation:
 ```
 MCP: mcp__kanbantic__update_toolkit_item(id, title, content: "<corrected pattern>")
 ```
 
-### 4b: Add New Discoveries
+### 5b: Add New Discoveries
 
 If you discovered new reusable patterns, gotchas, or rules during implementation:
 ```
@@ -296,7 +327,7 @@ MCP: mcp__kanbantic__create_toolkit_item(
 )
 ```
 
-### 4c: Deactivate Obsolete Knowledge
+### 5c: Deactivate Obsolete Knowledge
 
 If a pattern no longer applies:
 ```
@@ -309,7 +340,7 @@ MCP: mcp__kanbantic__update_toolkit_item(id, title, content, isActive: false)
 - Update rather than duplicate — search existing items first
 - Skip this step if nothing new was discovered (don't force it)
 
-### 4d: Record Knowledge Traceability
+### 5d: Record Knowledge Traceability
 
 Add a discussion entry documenting which Toolkit/Library items were consumed during execution and any changes made:
 
@@ -342,30 +373,30 @@ Use this template:
 
 This creates traceability between the issue and knowledge base — visible in the issue's discussion timeline in the Kanbantic UI.
 
-## Step 5: Run Local E2E Tests (auto-trigger)
+## Step 6: Run Local E2E Tests (auto-trigger)
 
 After all tasks are Done and knowledge is updated, run the local E2E test suite before transitioning to Review.
 
-### 5a: Check if skill exists
+### 6a: Check if skill exists
 
 ```
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Skill", search: "test-e2e-local")
 ```
 
-If no `/test-e2e-local` Toolkit Skill exists in the workspace, **skip this step** and proceed to Step 6.
+If no `/test-e2e-local` Toolkit Skill exists in the workspace, **skip this step** and proceed to Step 7.
 
-### 5b: Invoke the skill
+### 6b: Invoke the skill
 
 Load the Toolkit Skill content and execute the flow it describes:
 - Issue code: use the current issue code (e.g., `KBT-F122`)
 - Default test suite: `e2e/crud-functional.spec.ts`
 - No `--with-mcp` unless the issue touches MCP tools
 
-### 5c: Handle results
+### 6c: Handle results
 
 **If E2E tests pass:**
-- Add discussion entry: "Local E2E tests passed — proceeding to Review"
-- Continue to Step 6
+- Add discussion entry: "Local E2E tests passed — proceeding to Review pre-conditions."
+- Continue to Step 7
 
 **If E2E tests fail:**
 - Issue remains **InProgress** (do NOT transition to Review)
@@ -379,33 +410,68 @@ Load the Toolkit Skill content and execute the flow it describes:
 
 **If E2E infrastructure is unavailable** (PostgreSQL not installed, ports permanently occupied):
 - Add discussion entry: "Local E2E tests skipped — {reason}"
-- Warn the user and proceed to Step 6 (do not block the workflow)
+- Warn the user and proceed to Step 7 (do not block the workflow)
 
-## Step 6: Complete Issue
+## Step 7: Verify Review Pre-conditions + Transition
 
-After all tasks are done (and all phases approved, for Epics), check readiness before completing:
+<HARD-GATE>
+Review transition is allowed **only** when all of the following are true. If any condition fails, the issue stays `InProgress`, and the skill reports the failing condition to the user. NO "door-drukken".
+
+1. Every task on the issue has status `Done` or `Cancelled`.
+2. Every test case linked to the issue has status `Passed`.
+3. Readiness checks on the issue still pass (`isReadyToClaim` was true at claim time; re-check in case specs/test cases were added mid-flight).
+</HARD-GATE>
+
+### 7a: Verify tasks
+
+```
+MCP: mcp__kanbantic__list_tasks(issueId)
+```
+
+Every task must be `Done` or `Cancelled`. For every `Cancelled` task, verify a Decision discussion entry recorded the justification (required per Cancelling section below).
+
+### 7b: Verify test cases
+
+```
+MCP: mcp__kanbantic__list_test_cases(issueId)
+```
+
+Every returned test case must have `status: "Passed"`. If any are in `Draft`, `Ready`, `Failed`, `Blocked`, or `Skipped`, stop and report:
+
+> "Cannot transition to Review. Test cases still missing a `Passed` status:
+> - `KBT-TC1234` — Draft
+> - `KBT-TC1235` — Failed
+>
+> Run the test cases (manually or via the E2E skill), record results via `update_test_case(status: \"Passed\")` after verification, then re-run this step."
+
+### 7c: Re-check readiness
 
 ```
 MCP: mcp__kanbantic__get_issue(issueId)
 ```
 
-Inspect `IsReadyToClaim` and `ReadinessChecks` again — at completion, these reflect whether all required artifacts (test cases, specifications, etc.) are in place. If checks fail, report the failing checks to the user before proceeding. The user may need to add missing test cases or specifications.
+Confirm `isReadyToClaim` is still true (or that soft-override is acceptable). Report to the user if checks degraded.
 
-Then update status:
+### 7d: Transition
+
 ```
 MCP: mcp__kanbantic__update_issue_status(issueId, status: "Review")
 ```
 
+## Step 8: Final Report + Handoff
+
 Report:
-**"Implementation complete for [ISSUE CODE]. All [N] tasks completed. Issue status: Review.**
+**"Implementation complete for [ISSUE CODE]. Status: Review.**
 
 **Summary:**
-- [N] tasks completed
-- [N] commits
+- [N] tasks completed ([M] cancelled with justification)
+- [N] commits on `feature/<issue-code>-<slug>`
+- [N] test cases Passed
 - Knowledge: [N] Toolkit items created/updated (if any)
-- Branch: `feature/<issue-code>-<description>`
 
-**Next:** Push branch and create PR, or mark as Done if no PR needed."
+**Next step:** Invoke `kanbantic-issue-review` to run code review, merge, close, and extract final knowledge."
+
+Do **not** merge, do **not** set the issue to Done, do **not** create a PR — those are `kanbantic-issue-review`'s responsibilities.
 
 ## Subagent Mode
 
@@ -414,8 +480,8 @@ For large plans, you can dispatch implementer subagents per task. Use the templa
 When using subagents:
 1. Dispatch one subagent per task using the Agent tool
 2. Review the subagent's output
-3. Run code review after each task
-4. Update task status in Kanbantic based on results
+3. Update task status in Kanbantic based on results
+4. Commit + (for Epics) request review via 4A.3/4A.4
 
 ## Cancelling Tasks or Issues
 
@@ -448,7 +514,9 @@ MCP: mcp__kanbantic__update_issue_status(issueId, status: "Cancelled")
 - **Follow the plan** — implement exactly what's specified
 - **One task at a time** — don't skip ahead
 - **Verify before completing** — build and test after each task
-- **Commit frequently** — one commit per task or logical unit
+- **Commit frequently** — one commit per task or logical unit, conventional commits
+- **Push per phase (Epics) or at end (Feature/Bug)** — never leave work only local
 - **Update Kanbantic** — status changes and discussion entries for visibility
 - **Justify cancellations** — always record why in a Decision discussion entry
+- **Stop at Review** — merge/close/knowledge-finalize is `kanbantic-issue-review`'s job
 - **Stop when blocked** — ask questions, don't guess

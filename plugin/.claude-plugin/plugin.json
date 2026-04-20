@@ -1,7 +1,7 @@
 {
   "name": "kanbantic-claude-plugin",
-  "version": "1.14.0",
-  "description": "Kanbantic issue lifecycle skills: design, report bugs, plan, execute, review, and debug — all artifacts via Kanbantic MCP",
+  "version": "1.15.0",
+  "description": "Kanbantic issue lifecycle skills: intake (report / request / propose), triage, prepare, execute, review — all artifacts via Kanbantic MCP",
   "author": {
     "name": "Kanbantic"
   }

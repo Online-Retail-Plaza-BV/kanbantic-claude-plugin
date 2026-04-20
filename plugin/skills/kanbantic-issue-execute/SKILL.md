@@ -236,7 +236,7 @@ MCP: mcp__kanbantic__mark_phase_for_review(issueId, phaseId)
 
 ### 4A.4: Request Code Review
 
-Invoke `kanbantic-issue-review` to review the phase:
+Invoke `kanbantic-issue-review` to review the phase (which also handles merge/close on the final approve):
 ```
 Skill: kanbantic-issue-review
 ```

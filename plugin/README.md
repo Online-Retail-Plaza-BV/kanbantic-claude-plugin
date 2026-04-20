@@ -9,6 +9,7 @@ Claude plugin for Kanbantic issue lifecycle management. All artifacts are create
 | `kanbantic-bug-report` | `/report-bug` | Intake: report a bug (no design phases) |
 | `kanbantic-feature-request` | `/request-feature` | Intake: propose a Feature (creates Feature issue in `New`) |
 | `kanbantic-epic-proposal` | `/propose-epic` | Intake: propose an Epic (creates Epic issue in `New`) |
+| `kanbantic-issue-triage` | `/triage-issue` | Triage a New issue: go → Triaged (+metadata) or no-go → Cancelled (+reason) |
 | `kanbantic-issue-prepare` | `/prepare-issue` | Work a Triaged issue until `isReadyToClaim=true`. Routes on `issue.type` (Feature / Bug / Epic) |
 | `kanbantic-issue-execute` | `/execute-issue` | Execute an issue: claim, implement tasks, push, transition to Review |
 | `kanbantic-issue-review` | *(auto)* | Review + merge + close + knowledge-extractie — completes Review → Done |

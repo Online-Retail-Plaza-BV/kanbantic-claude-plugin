@@ -9,7 +9,7 @@ Claude plugin for Kanbantic issue lifecycle management. All artifacts are create
 | `kanbantic-issue-design` | `/design-issue` | Design a new issue or feature with specifications and test cases |
 | `kanbantic-bug-report` | `/report-bug` | Quick bug intake: what's broken, steps to reproduce, severity |
 | `kanbantic-issue-planning` | `/plan-issue` | Create implementation plan with phases, tasks, and code instructions |
-| `kanbantic-issue-executing` | `/execute-issue` | Execute implementation plan phase by phase with reviews |
+| `kanbantic-issue-execute` | `/execute-issue` | Execute an issue: claim, implement tasks, push, transition to Review |
 | `kanbantic-code-review` | *(auto)* | Review completed phase against specifications and test cases |
 | `kanbantic-debugging` | *(manual)* | Systematic bug investigation with root cause analysis |
 
@@ -197,7 +197,7 @@ This plugin replaces superpowers for Kanbantic‑specific workflows:
 
 - `brainstorming` → `kanbantic-issue-design`
 - `writing-plans` → `kanbantic-issue-planning`
-- `executing-plans` → `kanbantic-issue-executing`
+- `executing-plans` → `kanbantic-issue-execute`
 - `requesting-code-review` → `kanbantic-code-review`
 - `systematic-debugging` → `kanbantic-debugging`
 

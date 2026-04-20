@@ -6,28 +6,25 @@ Claude plugin for Kanbantic issue lifecycle management. All artifacts are create
 
 | Skill | Command | Description |
 |-------|---------|-------------|
-| `kanbantic-issue-design` | `/design-issue` | Design a new issue or feature with specifications and test cases |
-| `kanbantic-bug-report` | `/report-bug` | Quick bug intake: what's broken, steps to reproduce, severity |
-| `kanbantic-issue-planning` | `/plan-issue` | Create implementation plan with phases, tasks, and code instructions |
+| `kanbantic-bug-report` | `/report-bug` | Intake: report a bug (no design phases) |
+| `kanbantic-issue-prepare` | `/prepare-issue` | Work a Triaged issue until `isReadyToClaim=true`. Routes on `issue.type` (Feature / Bug / Epic) |
 | `kanbantic-issue-execute` | `/execute-issue` | Execute an issue: claim, implement tasks, push, transition to Review |
 | `kanbantic-issue-review` | *(auto)* | Review + merge + close + knowledge-extractie — completes Review → Done |
-| `kanbantic-debugging` | *(manual)* | Systematic bug investigation with root cause analysis |
 
 ## Workflow
 
 ```
-/design-issue → /plan-issue → /execute-issue
-                                   ↓
-                          issue-review (per phase, + merge + close on final approve)
-
-/report-bug → /plan-issue or debugging
+/report-bug ─────┐
+                  ├──▶ (New) ──▶ triage ──▶ (Triaged) ──▶ /prepare-issue ──▶ (ready) ──▶ /execute-issue ──▶ (Review) ──▶ issue-review ──▶ (Done)
+feature-request ─┤
+epic-proposal ───┘
 ```
 
-1. **Design** — Collaborate on requirements → Creates Issue + Specs + Test Cases in Kanbantic
-2. **Report Bug** — Quick intake → Creates Bug issue with steps to reproduce
-3. **Plan** — Explore codebase → Creates Implementation Plan + Phases + Tasks + Code Instructions
-4. **Execute** — Implement phase by phase → Updates task status, commits code, requests review
-5. **Review** — Subagent reviews against specs → Approves or rejects phase with feedback
+1. **Intake** — `kanbantic-bug-report`, `kanbantic-feature-request`, `kanbantic-epic-proposal` create the issue (status `New`)
+2. **Triage** — `kanbantic-issue-triage` decides go / no-go, sets priority / release / application (`New → Triaged`)
+3. **Prepare** — `kanbantic-issue-prepare` works the issue out until `isReadyToClaim=true`; routes internally on `issue.type`
+4. **Execute** — `kanbantic-issue-execute` claims, implements tasks, pushes, transitions to Review
+5. **Review** — `kanbantic-issue-review` reviews against specs, approves/rejects, merges to main, closes, optional knowledge-extractie
 
 ## Architecture
 
@@ -195,11 +192,11 @@ All artifacts (issues, specifications, test cases, implementation plans, discuss
 
 This plugin replaces superpowers for Kanbantic‑specific workflows:
 
-- `brainstorming` → `kanbantic-issue-design`
-- `writing-plans` → `kanbantic-issue-planning`
+- `brainstorming` → `kanbantic-issue-prepare` (Feature / Epic routing)
+- `writing-plans` → `kanbantic-issue-prepare` (Epic routing)
 - `executing-plans` → `kanbantic-issue-execute`
 - `requesting-code-review` → `kanbantic-issue-review`
-- `systematic-debugging` → `kanbantic-debugging`
+- `systematic-debugging` → `kanbantic-issue-prepare` (Bug routing)
 
 Generic superpowers skills (TDD, verification, git worktrees) remain available if superpowers is also installed.
 

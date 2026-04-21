@@ -88,6 +88,30 @@ If the check passes (paths differ → you are in a worktree), continue silently.
 
 ```
 MCP: mcp__kanbantic__get_issue(issueId)
+```
+
+Load the issue first so the status gate below can run on the actual current status, not a stale assumption.
+
+## Step 1.5: Status HARD-GATE
+
+<HARD-GATE>
+The review skill owns the **Review → Done** transition. Any other starting status is out of scope. Verify `issue.status == "Review"` before doing anything that costs resources (reviewer subagent, git diff, discussion entries).
+
+- If `status == "Review"` → continue silently.
+- If `status == "New"` → STOP. Report: "Issue [CODE] is still in status `New`. Run `/triage-issue [CODE]` first to move it to Triaged."
+- If `status == "Triaged"` → STOP. Report: "Issue [CODE] is Triaged but not yet executed. Run `/prepare-issue [CODE]` (if artifacts missing) and `/execute-issue [CODE]` before review can run."
+- If `status == "InProgress"` → STOP. Report: "Issue [CODE] is still `InProgress`. `/execute-issue` must transition it to Review before review can run."
+- If `status == "Done"` → STOP. Report: "Issue [CODE] is already `Done`. No review needed — this skill is an idempotent no-op here."
+- If `status == "Cancelled"` → STOP. Report: "Issue [CODE] was `Cancelled`. Nothing to review."
+
+**On any STOP**: exit the skill immediately. Do **NOT** dispatch the reviewer subagent (Step 3), do **NOT** create discussion entries (Step 4), do **NOT** attempt a status transition. This gate prevents resource-waste and misleading audit-trail entries on issues that are not in the Review lane.
+
+No opt-out, no override — the skill's scope is by definition Review → Done.
+</HARD-GATE>
+
+## Step 1b: Load Review Context
+
+```
 MCP: mcp__kanbantic__list_specifications(workspaceId)
 MCP: mcp__kanbantic__list_test_cases(workspaceId, issueId)
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Rule")

@@ -65,6 +65,29 @@ Before starting, verify you have local access to the workspace's code repository
 - If the repo is already cloned, run `git pull` to get the latest code. Branch creation happens in Step 2.
 </IMPORTANT>
 
+## Step 0.5: Worktree HARD-GATE
+
+<HARD-GATE>
+Before any status-mutating or code-changing step, verify you are **not** in the main working tree. Agents often run in parallel on the same clone; working in the main tree on a feature branch risks conflicts with other concurrent agents or manual commits.
+
+```bash
+GIT_DIR=$(git rev-parse --git-dir)
+GIT_COMMON=$(git rev-parse --git-common-dir)
+if [ "$GIT_DIR" = "$GIT_COMMON" ]; then
+  STOP. Report to user verbatim:
+  "You are in the main working tree ($GIT_COMMON).
+  Run EnterWorktree(name: '<ISSUE-CODE>') first, then re-run this skill.
+  See KBT-TRUL004 for the rationale."
+fi
+```
+
+`<ISSUE-CODE>` is the code of the issue this skill is processing (e.g. `KBT-F123`).
+
+**No opt-out, no override.** This is a working-tree safety check, not a readiness-artifact check. Working in the main tree is wrong even if the specific bullet reasons don't apply right now — parallel agents are the norm, not the exception.
+
+If the check passes (paths differ → you are in a worktree), continue silently.
+</HARD-GATE>
+
 ## Step 1: Gate-check — Triaged + Ready to Claim
 
 Before claiming, verify the issue is in the right state and has the required artifacts:

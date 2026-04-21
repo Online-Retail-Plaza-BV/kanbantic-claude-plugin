@@ -78,6 +78,29 @@ Before starting, verify you have local access to the workspace's code repository
 Prepare does not create branches or commits. It only reads the codebase for context and writes to Kanbantic via MCP.
 </IMPORTANT>
 
+## Step 0.5: Worktree HARD-GATE
+
+<HARD-GATE>
+Before any status-mutating or artifact-creating step, verify you are **not** in the main working tree. Agents often run in parallel on the same clone; prepare may write code instructions and temporary files — working in the main tree on a feature branch risks conflicts with other concurrent agents.
+
+```bash
+GIT_DIR=$(git rev-parse --git-dir)
+GIT_COMMON=$(git rev-parse --git-common-dir)
+if [ "$GIT_DIR" = "$GIT_COMMON" ]; then
+  STOP. Report to user verbatim:
+  "You are in the main working tree ($GIT_COMMON).
+  Run EnterWorktree(name: '<ISSUE-CODE>') first, then re-run this skill.
+  See KBT-TRUL004 for the rationale."
+fi
+```
+
+`<ISSUE-CODE>` is the code of the issue this skill is processing (e.g. `KBT-F123`).
+
+**No opt-out, no override.** This is a working-tree safety check, not a readiness-artifact check. Working in the main tree is wrong even if the specific bullet reasons don't apply right now — parallel agents are the norm, not the exception.
+
+If the check passes (paths differ → you are in a worktree), continue silently.
+</HARD-GATE>
+
 ## Step 1: Gate-check — Triaged
 
 ```

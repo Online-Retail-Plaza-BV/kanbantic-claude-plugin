@@ -10,7 +10,7 @@
   "plugins": [
     {
       "name": "kanbantic-claude-plugin",
-      "version": "1.15.0",
+      "version": "2.0.0",
       "source": "./plugin",
       "description": "Issue lifecycle skills: intake (report / request / propose), triage, prepare, execute, review — all artifacts via Kanbantic MCP"
     }

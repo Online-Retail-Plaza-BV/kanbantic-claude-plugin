@@ -1,8 +1,8 @@
-# Kanbantic Claude Plugin v1.15.0 — Lane Workflow Skills
+# Kanbantic Claude Plugin v2.0.0 — Lane Workflow Skills
 
 This release completes the lane-workflow-skills redesign tracked in Kanbantic Initiative **KBT-INI033**. The plugin's skill set now maps one-to-one onto the Kanbantic issue lanes: **New → Triaged → (ready-to-claim) → InProgress → Review → Done**.
 
-**Breaking change:** five skill names have been renamed or retired. There are no aliases, no deprecation warnings, no grace period. Any existing workflow that called the old names must be updated in the same commit as the plugin upgrade.
+**This is a MAJOR version bump (v1 → v2)** because five skill names have been renamed or retired with no aliases, no deprecation warnings, and no grace period. Any existing workflow that called the old names must be updated in the same commit as the plugin upgrade — invoking an old name returns "skill not found".
 
 ## New skills
 
@@ -58,7 +58,7 @@ Removed: `/design-issue`, `/plan-issue`.
 
 ## Infrastructure
 
-No changes to the stdio proxy, MCP server, or installation flow. `irm https://kanbantic.com/install.ps1 | iex` installs v1.15.0 as usual.
+No changes to the stdio proxy, MCP server, or installation flow. `irm https://kanbantic.com/install.ps1 | iex` installs v2.0.0 as usual.
 
 ## Kanbantic tracking
 

@@ -1,7 +1,7 @@
 {
   "name": "kanbantic-claude-plugin",
-  "version": "2.0.0",
-  "description": "Kanbantic issue lifecycle skills: intake (report / request / propose), triage, prepare, execute, review — all artifacts via Kanbantic MCP. v2 renames all lane-skills without aliases; see RELEASE_NOTES_v2.0.0.md for the migration.",
+  "version": "2.1.0",
+  "description": "Kanbantic issue lifecycle skills: intake (report / request / propose), triage, prepare, execute, review — all artifacts via Kanbantic MCP. v2.1 adds a worktree HARD-GATE to execute / prepare / review; see RELEASE_NOTES_v2.1.0.md.",
   "author": {
     "name": "Kanbantic"
   }

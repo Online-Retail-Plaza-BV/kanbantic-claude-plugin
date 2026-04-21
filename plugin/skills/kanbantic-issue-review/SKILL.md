@@ -61,6 +61,29 @@ Before starting, verify you have local access to the workspace's code repository
 - If the repo is already cloned, ensure you're on the branch being reviewed before proceeding.
 </IMPORTANT>
 
+## Step 0.5: Worktree HARD-GATE
+
+<HARD-GATE>
+Before any status-mutating, merge, or push step, verify you are **not** in the main working tree. Agents often run in parallel on the same clone; review performs `git merge --no-ff` and `git push origin main` — working in the main tree here risks overwriting concurrent changes or pushing unrelated state.
+
+```bash
+GIT_DIR=$(git rev-parse --git-dir)
+GIT_COMMON=$(git rev-parse --git-common-dir)
+if [ "$GIT_DIR" = "$GIT_COMMON" ]; then
+  STOP. Report to user verbatim:
+  "You are in the main working tree ($GIT_COMMON).
+  Run EnterWorktree(name: '<ISSUE-CODE>') first, then re-run this skill.
+  See KBT-TRUL004 for the rationale."
+fi
+```
+
+`<ISSUE-CODE>` is the code of the issue this skill is reviewing (e.g. `KBT-F123`).
+
+**No opt-out, no override.** This is a working-tree safety check, not a readiness-artifact check. The merge step specifically re-enters the main branch to integrate; doing that from a worktree keeps the main clone untouched by the reviewer's local state.
+
+If the check passes (paths differ → you are in a worktree), continue silently.
+</HARD-GATE>
+
 ## Step 1: Load Context
 
 ```

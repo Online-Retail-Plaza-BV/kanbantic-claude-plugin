@@ -14,6 +14,15 @@
 //   This proxy uses stdio transport (no OAuth, no discovery, no cache) and
 //   handles HTTP + Bearer auth itself. Problem permanently eliminated.
 //
+// Agent Communication Hub (KBT-E046 Phase 3b):
+//   When the host calls the `register_agent_session` tool, the proxy:
+//     1. Captures the returned sessionId + channelId.
+//     2. Declares `experimental.claude/channel` capability on the next initialize-
+//        response so Claude Code accepts inbound channel notifications.
+//     3. Starts a 1s inbox-poll-loop that calls `get_channel_messages` with an
+//        After-cursor and pushes each new message via `notifications/claude/channel`.
+//     4. On SIGINT/SIGTERM: stops the poll, calls `end_agent_session`, exits clean.
+//
 // Zero dependencies — uses only Node.js built-ins.
 //
 
@@ -43,8 +52,16 @@ if (!API_KEY && process.platform === 'win32') {
   }
 }
 
-let sessionId = null;
+let sessionId = null;            // MCP transport session (Mcp-Session-Id header)
 let stdinEnded = false;
+let shuttingDown = false;
+
+// Agent Communication Hub state (set after register_agent_session succeeds).
+let agentSessionId = null;       // Kanbantic AgentSession.Id
+let agentChannelId = null;       // Kanbantic AgentChannel.Id (1:1 with session)
+let inboxCursor = null;          // ISO timestamp — only fetch messages with SentAt > this
+let inboxPollTimer = null;
+const INBOX_POLL_INTERVAL_MS = 1000;
 
 // ---------------------------------------------------------------------------
 // stdio: read newline-delimited JSON-RPC from stdin, write to stdout
@@ -63,7 +80,7 @@ process.stdin.on('data', (chunk) => {
 });
 process.stdin.on('end', () => {
   stdinEnded = true;
-  if (!processing) process.exit(0);
+  if (!processing) gracefulExit(0);
 });
 
 function drain() {
@@ -83,7 +100,7 @@ async function processQueue() {
     await dispatch(queue.shift());
   }
   processing = false;
-  if (stdinEnded) process.exit(0);
+  if (stdinEnded) gracefulExit(0);
 }
 
 function send(obj) {
@@ -91,7 +108,7 @@ function send(obj) {
 }
 
 // ---------------------------------------------------------------------------
-// dispatch: validate, forward, respond
+// dispatch: validate, forward, post-process, respond
 // ---------------------------------------------------------------------------
 
 async function dispatch(line) {
@@ -123,7 +140,10 @@ async function dispatch(line) {
 
   try {
     const responses = await forward(line);
-    for (const r of responses) send(r);
+    for (const r of responses) {
+      postProcess(msg, r);
+      send(r);
+    }
   } catch (err) {
     process.stderr.write(`[kanbantic-proxy] ${err.message}\n`);
     if (msg.id != null) {
@@ -134,6 +154,142 @@ async function dispatch(line) {
       });
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// postProcess: inspect responses for capability negotiation + register_agent_session
+// ---------------------------------------------------------------------------
+
+function postProcess(request, response) {
+  // 1. Declare claude/channel capability on initialize-response so Claude Code
+  //    accepts inbound notifications/claude/channel.
+  if (request.method === 'initialize' && response.result) {
+    response.result.capabilities = response.result.capabilities || {};
+    response.result.capabilities.experimental =
+      response.result.capabilities.experimental || {};
+    response.result.capabilities.experimental['claude/channel'] = {};
+  }
+
+  // 2. Capture sessionId + channelId from register_agent_session response.
+  if (request.method === 'tools/call' &&
+      request.params && request.params.name === 'register_agent_session' &&
+      response.result && response.result.content) {
+    const parsed = parseToolResult(response);
+    if (parsed && parsed.success && parsed.sessionId && parsed.channelId) {
+      agentSessionId = parsed.sessionId;
+      agentChannelId = parsed.channelId;
+      // Initialize the inbox-poll cursor at 'now' so we don't replay old history.
+      inboxCursor = new Date().toISOString();
+      startInboxPoll();
+      process.stderr.write(
+        `[kanbantic-proxy] agent session ${agentSessionId} registered, ` +
+        `channel ${agentChannelId} — inbox-poll started\n`
+      );
+    }
+  }
+
+  // 3. Reset state on end_agent_session so a graceful end stops the poll-loop.
+  if (request.method === 'tools/call' &&
+      request.params && request.params.name === 'end_agent_session') {
+    stopInboxPoll();
+    agentSessionId = null;
+    agentChannelId = null;
+  }
+}
+
+function parseToolResult(response) {
+  // Tool results in MCP wrap the actual response in content[0].text as JSON string.
+  try {
+    const content = response.result.content;
+    if (!Array.isArray(content) || content.length === 0) return null;
+    const text = content[0].text;
+    if (typeof text !== 'string') return null;
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Inbox-poll loop — calls get_channel_messages every 1s, pushes new messages
+// to the host via notifications/claude/channel.
+// ---------------------------------------------------------------------------
+
+function startInboxPoll() {
+  if (inboxPollTimer) return;
+  inboxPollTimer = setInterval(pollInbox, INBOX_POLL_INTERVAL_MS);
+}
+
+function stopInboxPoll() {
+  if (!inboxPollTimer) return;
+  clearInterval(inboxPollTimer);
+  inboxPollTimer = null;
+}
+
+async function pollInbox() {
+  if (!agentChannelId || shuttingDown) return;
+
+  try {
+    const result = await callInternalTool('get_channel_messages', {
+      channelId: agentChannelId,
+      after: inboxCursor,
+      maxResults: 50,
+    });
+
+    if (!result || !result.success) return;
+    const messages = result.messages || [];
+    if (messages.length === 0) return;
+
+    for (const msg of messages) {
+      // Skip messages authored by the same session — those are our own outbound
+      // posts coming back through the channel.
+      if (msg.authorAgentSessionId && msg.authorAgentSessionId === agentSessionId) {
+        if (msg.sentAt > inboxCursor) inboxCursor = msg.sentAt;
+        continue;
+      }
+
+      send({
+        jsonrpc: '2.0',
+        method: 'notifications/claude/channel',
+        params: {
+          content: msg.content,
+          meta: {
+            from_session: msg.authorAgentSessionId || null,
+            from_user: msg.authorUserId || null,
+            from_display_name: msg.authorDisplayName || 'Unknown',
+            author_type: msg.authorType,
+            message_type: msg.messageType,
+            sent_at: msg.sentAt,
+            message_id: msg.id,
+            channel_id: msg.channelId,
+          },
+        },
+      });
+
+      if (msg.sentAt > inboxCursor) inboxCursor = msg.sentAt;
+    }
+  } catch (e) {
+    process.stderr.write(`[kanbantic-proxy] inbox-poll error: ${e.message}\n`);
+  }
+}
+
+// callInternalTool: invokes a tool/call against the server WITHOUT going through
+// the stdin queue. Used by the poll-loop to fetch inbox messages internally.
+async function callInternalTool(toolName, toolArgs) {
+  const requestId = `proxy-internal-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const body = JSON.stringify({
+    jsonrpc: '2.0',
+    id: requestId,
+    method: 'tools/call',
+    params: { name: toolName, arguments: toolArgs },
+  });
+  const responses = await forward(body);
+  for (const r of responses) {
+    if (r.id === requestId) {
+      return parseToolResult(r);
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,3 +393,43 @@ function parseSSE(data) {
   }
   return messages;
 }
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown — SIGINT/SIGTERM handlers
+//
+// On signal: stop the poll-loop, call end_agent_session if we have a sessionId,
+// then exit. Wraps process.exit so stdin-end and signals share the same cleanup
+// path.
+// ---------------------------------------------------------------------------
+
+async function gracefulExit(code) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  stopInboxPoll();
+
+  if (agentSessionId && API_KEY) {
+    try {
+      await callInternalTool('end_agent_session', {
+        sessionId: agentSessionId,
+        reason: 'ProxyShutdown',
+      });
+      process.stderr.write(`[kanbantic-proxy] ended session ${agentSessionId}\n`);
+    } catch (e) {
+      process.stderr.write(
+        `[kanbantic-proxy] failed to end session on shutdown: ${e.message}\n`
+      );
+    }
+  }
+
+  process.exit(code);
+}
+
+process.on('SIGINT', () => {
+  process.stderr.write('[kanbantic-proxy] received SIGINT, shutting down\n');
+  gracefulExit(0);
+});
+process.on('SIGTERM', () => {
+  process.stderr.write('[kanbantic-proxy] received SIGTERM, shutting down\n');
+  gracefulExit(0);
+});

@@ -28,6 +28,9 @@
 
 const https = require('https');
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const { URL } = require('url');
 const { execSync } = require('child_process');
 
@@ -181,6 +184,7 @@ function postProcess(request, response) {
       // Initialize the inbox-poll cursor at 'now' so we don't replay old history.
       inboxCursor = new Date().toISOString();
       startInboxPoll();
+      writeSessionFile();
       process.stderr.write(
         `[kanbantic-proxy] agent session ${agentSessionId} registered, ` +
         `channel ${agentChannelId} — inbox-poll started\n`
@@ -192,8 +196,56 @@ function postProcess(request, response) {
   if (request.method === 'tools/call' &&
       request.params && request.params.name === 'end_agent_session') {
     stopInboxPoll();
+    removeSessionFile();
     agentSessionId = null;
     agentChannelId = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session-file: persistent metadata read by Claude Code hook scripts
+// (UserPromptSubmit / PreToolUse / PostToolUse / Stop) to discover the active
+// AgentChannel + API URL. Hooks run as separate subprocesses and don't share
+// memory with the proxy — the file is the IPC mechanism.
+// Path: ~/.claude-kanbantic-session.json (single-session per user, last register
+// wins for multi-Claude-session-per-workstation scenarios — see KBT-E046 P4 README).
+// ---------------------------------------------------------------------------
+
+function sessionFilePath() {
+  return path.join(os.homedir(), '.claude-kanbantic-session.json');
+}
+
+function writeSessionFile() {
+  if (!agentSessionId || !agentChannelId) return;
+  const payload = {
+    sessionId: agentSessionId,
+    channelId: agentChannelId,
+    apiUrl: deriveApiUrl(),
+    writtenAt: new Date().toISOString(),
+  };
+  try {
+    fs.writeFileSync(sessionFilePath(), JSON.stringify(payload, null, 2), { encoding: 'utf8' });
+  } catch (e) {
+    process.stderr.write(`[kanbantic-proxy] failed to write session file: ${e.message}\n`);
+  }
+}
+
+function removeSessionFile() {
+  try {
+    fs.unlinkSync(sessionFilePath());
+  } catch {
+    // file may not exist; ignore.
+  }
+}
+
+function deriveApiUrl() {
+  // KANBANTIC_API_URL takes precedence; otherwise derive from MCP_URL by stripping the /mcp path.
+  if (process.env.KANBANTIC_API_URL) return process.env.KANBANTIC_API_URL.replace(/\/$/, '');
+  try {
+    const url = new URL(MCP_URL);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return 'https://kanbantic.com';
   }
 }
 
@@ -407,6 +459,7 @@ async function gracefulExit(code) {
   shuttingDown = true;
 
   stopInboxPoll();
+  removeSessionFile();
 
   if (agentSessionId && API_KEY) {
     try {

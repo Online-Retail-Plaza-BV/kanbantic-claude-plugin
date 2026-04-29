@@ -45,6 +45,27 @@ Why stdio and not HTTP:
 
 **Do not use** `"type": "http"` MCP configs for Kanbantic. They will break within hours or days.
 
+## Agent Communication Hub (KBT-E046)
+
+Sinds v2.2 ondersteunt de proxy de **Agent Communication Hub** — agents kunnen tijdens hun sessie chatten met users en met andere agents direct via Kanbantic, en de Kanbantic-UI toont een live presence + chat-overzicht voor elke draaiende agent.
+
+Hoe het werkt:
+
+1. Wanneer Claude `register_agent_session` aanroept, captured de proxy de `sessionId` + `channelId` uit de response.
+2. De proxy declareert `experimental.claude/channel`-capability op de `initialize`-response zodat Claude Code inkomende channel-notificaties accepteert.
+3. Vanaf dat moment polt de proxy elke 1s `get_channel_messages` met een `after`-cursor en pusht elke nieuwe message via `notifications/claude/channel` direct in de lopende Claude-sessie.
+4. Bij SIGINT / SIGTERM stopt de proxy de poll-loop, roept `end_agent_session` aan, en exit clean.
+
+**Vereiste launch-flag voor Claude Code (channels zijn experimental):**
+
+```bash
+claude --dangerously-load-development-channels server:kanbantic
+```
+
+(Claude Code v2.1.80+ vereist; channels werken niet zonder deze flag.)
+
+Zonder de flag werken `register_agent_session` / `send_message` / `get_channel_messages` etc. nog steeds als gewone tools — maar de **push-richting** (user → agent) verloopt niet realtime. Polling vanuit de agent zelf via `check_messages` is mogelijk maar niet aanbevolen.
+
 ## Requirements
 
 - [Claude Code](https://claude.ai/code) **or** Claude Desktop (Windows App)

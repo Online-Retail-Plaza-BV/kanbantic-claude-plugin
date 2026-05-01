@@ -263,17 +263,45 @@ git push origin --delete <feature-branch> # remote delete (warning on failure, n
 
 Use `--no-ff` as the default merge strategy. Do NOT use `--squash` or `--rebase` unless the workspace explicitly opts in via a Toolkit rule (auto-merge-beleid valt onder Execution Hardening, v0.6.0).
 
+## Step 7.5: Record Review Approval
+
+Before transitioning to Done, persist a `ReviewApproval` row so the
+`HasReviewApproval` readiness-gate flips green. The approval captures the
+reviewer-principal, verdict, and a written summary (≥20 chars) — the
+audit-trail that KBT-F170 / KBT-PR191 made mechanically required after the
+KBT-F156 / KBT-B175 incidents. Without this row the next step's
+`update_issue_status(Done)` will fail with `ReadinessGateBlocked` /
+`HasReviewApproval not met`.
+
+```
+MCP: mcp__kanbantic__approve_review(
+  issueId,
+  verdict: "Approved" | "ApprovedWithComments",
+  reason: <≥20-char review summary — usually the body of the Decision entry from Step 4>
+)
+```
+
+- Pick `Approved` for clean reviews, `ApprovedWithComments` when nits or
+  follow-up tasks were noted but the issue is still ready for Done.
+- Reuse the review-summary written in Step 4 (the Critical/Important/Minor
+  verdict block) so the approval row and the discussion-entry stay in sync.
+- The reason is required and validated to ≥20 characters after trim.
+
+If `approve_review` fails (e.g. the issue is no longer in `Review` status
+because someone bounced it back), stop the skill and report the error. Do
+NOT proceed to Step 8 — the gate cannot clear without a successful approval.
+
 ## Step 8: Close Issue
 
 <IMPORTANT>
-Step 8 runs only after Step 7 completed successfully (merge **and** push both succeeded; local branch delete succeeded; remote delete is a warning-only).
+Step 8 runs only after Step 7 completed successfully (merge **and** push both succeeded; local branch delete succeeded; remote delete is a warning-only) **and** Step 7.5 recorded a ReviewApproval row.
 </IMPORTANT>
 
 ```
 MCP: mcp__kanbantic__update_issue_status(issueId, status: "Done")
 ```
 
-If the workspace's readiness gate blocks `Review → Done` (missing Specifications Approved / missing E2E test level / etc.), the call returns a `ReadinessGateBlocked` error. Surface the blocking checks to the user and stop — do **not** override without explicit instruction. The merge is already on main, so the issue stays on `Review` until the gate clears.
+If the workspace's readiness gate blocks `Review → Done` (missing Specifications Approved / missing E2E test level / **missing Review Approved** / etc.), the call returns a `ReadinessGateBlocked` error. Surface the blocking checks to the user and stop — do **not** override without explicit instruction. The merge is already on main, so the issue stays on `Review` until the gate clears.
 
 ## Step 9: Knowledge-Extractie (optional)
 
@@ -365,5 +393,6 @@ Report:
 - **Push back if wrong** — if reviewer feedback is incorrect, explain why with evidence
 - **Merge only after final approve** — no half-merged Epics
 - **Done-transitie alleen na merge + push** — never set `Done` on a local-only merge
+- **Approval before Done** — every Review→Done transition is preceded by a `ReviewApproval` row via `approve_review` (KBT-F170 / KBT-PR191)
 - **Knowledge is optional, not forced** — "nothing to capture" is a valid answer
 - **Record everything** — all feedback and decisions go to Kanbantic discussion

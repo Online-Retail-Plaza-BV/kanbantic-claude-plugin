@@ -111,6 +111,17 @@ The explicit `Triaged` check prevents execution of half-designed issues and coup
 
 ## Step 2: Claim Issue and Create Branch
 
+<HARD-GATE>
+**`claim_issue` is the FIRST state-mutating MCP call of execute, before any other `update_issue_*` call.** Per `KBT-RL048`, calling `update_issue_status(InProgress)` before `claim_issue` is forbidden — `claim_issue` atomically:
+
+1. Validates the readiness gate (with optional `overrideReason` for Soft enforcement).
+2. Sets the assignee to the current agent.
+3. Records the branch on the issue.
+4. **Promotes the issue from `New`/`Triaged` to `InProgress` in the same call.**
+
+Do **not** split this into `claim_issue` + a separate `update_issue_status(InProgress)` — the second call is unnecessary and historically the source of `MissingAssignee` errors when agents accidentally reversed the order.
+</HARD-GATE>
+
 ```
 MCP: mcp__kanbantic__claim_issue(issueId, branch: "<branch-name>", overrideReason: "<if soft override>")
 ```
@@ -125,6 +136,31 @@ Create the branch locally:
 ```bash
 git checkout -b feature/<issue-code>-<slug>
 ```
+
+### Step 2 — Idempotent claim-or-resume (after a crashed earlier session)
+
+Per `KBT-SR258`, `claim_issue` is **idempotent for the same principal**: if you (the same agent) already claimed this issue in a previous session that crashed, re-calling `claim_issue` is safe and acts as a resume. The Domain-level `Issue.Claim()` only blocks when the *current* assignee differs from the calling principal — same-principal re-claim updates `claimedAt` + `branch` and ensures `status == InProgress`.
+
+This means the execute-skill's claim step is **always one tool call**, regardless of whether the previous session crashed mid-flight:
+
+| Pre-state of the issue | Behavior of `claim_issue` |
+|---|---|
+| `Triaged`, no assignee | Fresh claim. Sets assignee, branch, status → `InProgress`. |
+| `Triaged`, assignee = self | Resume. Updates `claimedAt`+`branch`, promotes → `InProgress`. |
+| `InProgress`, assignee = self | Resume. Updates `claimedAt`+`branch`, status unchanged. |
+| `Triaged`/`InProgress`, assignee = other principal | Fails with structured `Kanbantic:IssueAlreadyAssigned` (see error handling below). |
+
+### Step 2 — Handling structured error responses
+
+When `claim_issue` or any `update_issue_*` MCP tool fails, the backend (per `KBT-SR259` / `KBT-SR260`) inlines structured fields into the error message via `(key: value)` pairs — `ExceptionHelper.FormatErrorMessage` flattens them into the `errorMessage` string. Pattern-match on these to act without an extra `get_issue` call:
+
+- `(currentAssignee: <name>)` — when `IssueAlreadyAssigned`. Honor handover etiquette before re-attempting.
+- `(missingCondition: MissingAssignee)` — call `claim_issue` first (you skipped it).
+- `(missingCondition: ReadinessGateFailed)` + `(missing: <list>)` + `(enforcement: Hard|Soft)` — Hard requires the missing artifacts; Soft accepts an `overrideReason`.
+- `(missingCondition: OpenTasks)` + `(openTaskCodes: KBT-T..., KBT-T...)` — close those tasks before retrying `Done`.
+- `(recommendation: <text>)` — the backend's suggested next action; follow it before retrying.
+
+Do not retry the same call without addressing the structured cause; the error is deterministic and will repeat.
 
 ## Workflow by Issue Type
 

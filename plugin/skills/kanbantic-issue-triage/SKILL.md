@@ -151,7 +151,7 @@ Report:
 - Application: [application]
 - Initiative: [initiative or —]
 
-**Next step:** Invoke `kanbantic-issue-prepare` to work the issue out until it is ready to claim. `readinessChecks` will stay red for Specifications / TestCases / UserStories until prepare has run — that is expected."
+**Next step:** Invoke `kanbantic-issue-prepare` to add specs / user stories / test cases (Epic also: implementation plan). Once all readiness-checks are green, prepare transitions the issue to **`Prepared`** (KBT-F235), surfacing it in the Prepared kanban-column for `kanbantic-issue-execute` to claim. `readinessChecks` will stay red for Specifications / TestCases / UserStories and the issue will stay on `Triaged` until prepare has run — that is expected."
 
 ## Step 6: No-go Path
 

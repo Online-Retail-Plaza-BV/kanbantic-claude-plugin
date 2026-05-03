@@ -1,26 +1,26 @@
 ---
 name: kanbantic-issue-prepare
-description: "Use after kanbantic-issue-triage marks an issue Triaged. Consolidates the old design + debugging + planning flows into one lane-verwerker. Routes on issue.type: Feature → requirements + specs + test cases; Bug → root-cause + repro-steps + regression test; Epic → requirements + implementation plan (phases + tasks). Ends when all readiness-checks pass (isReadyToClaim = true)."
+description: "Use after kanbantic-issue-triage marks an issue Triaged. Consolidates the old design + debugging + planning flows into one lane-verwerker. Routes on issue.type: Feature → requirements + specs + test cases; Bug → root-cause + repro-steps + regression test; Epic → requirements + implementation plan (phases + tasks). Ends by transitioning the issue to Prepared (KBT-F235) once all readiness-checks pass — the issue then sits in the Prepared kanban-column awaiting claim_issue from kanbantic-issue-execute."
 ---
 
 # Kanbantic Issue Prepare
 
 ## Overview
 
-`kanbantic-issue-prepare` works a Triaged issue all the way to claimable. It is the **single entry point** for the Triaged → (ready-to-claim) lane transition — regardless of whether the issue is a Feature, Bug, or Epic. Internally it dispatches on `issue.type` so the user never has to choose a sub-skill.
+`kanbantic-issue-prepare` works a Triaged issue all the way to a first-class **`Prepared`** status (KBT-F235). It is the **single entry point** for the Triaged → Prepared lane transition — regardless of whether the issue is a Feature, Bug, or Epic. Internally it dispatches on `issue.type` so the user never has to choose a sub-skill.
 
-**Principle:** Read Triaged issue from Kanbantic → route on type → dialogue with user → write specs / user stories / test cases / phases to Kanbantic. Stop when `isReadyToClaim == true`.
+**Principle:** Read Triaged issue from Kanbantic → route on type → dialogue with user → write specs / user stories / test cases / phases to Kanbantic → transition issue to `Prepared` so it surfaces in the Prepared kanban-column for claim_issue.
 
 **Announce at start:** "I'm using the kanbantic-issue-prepare skill to work this issue out until it's claimable."
 
 ## Scope
 
-This skill owns the **Triaged → (ready-to-claim)** transition. It does NOT:
+This skill owns the **Triaged → Prepared** transition. It does NOT:
 
 - Create new issues — that is the job of the intake skills (`kanbantic-feature-request`, `kanbantic-epic-proposal`, `kanbantic-bug-report`). If the user proposes a completely new idea mid-dialogue, the skill points them at the right intake skill and stops.
-- Change issue status to `InProgress` — that is the job of `kanbantic-issue-execute` which enforces its own gate (Triaged + `isReadyToClaim == true`).
+- Change issue status to `InProgress` — that is the job of `kanbantic-issue-execute` (which now claims directly from `Prepared` via `claim_issue`, atomically promoting status to `InProgress` per KBT-RL052).
 
-The skill may transition the issue back to the same Triaged status at the end (no actual status change) if the readiness-gate is still not green — and report which checks are still failing.
+If the readiness-gate is still not green at the end of a run, the issue stays on `Triaged` (no transition) and the skill reports which checks are still failing — the user re-runs the skill once the missing artifacts are added.
 
 ## Checklist
 
@@ -332,33 +332,38 @@ Go to Step 6.
 MCP: mcp__kanbantic__get_issue(issueId)
 ```
 
-Re-inspect `isReadyToClaim` and `readinessChecks`.
+Re-inspect `readinessChecks` for the `Triaged → Prepared` transition. The `isReadyToClaim` boolean on the DTO is now derived from `Status == Prepared` (KBT-SR266) — at this point it is still `false`; that flips to `true` after Step 6a transitions the issue.
 
-### 6a: All checks green
+### 6a: All checks green — transition to Prepared
 
-Report:
-**"[ISSUE CODE] is now ready to claim. All readiness checks pass:**
+```
+MCP: mcp__kanbantic__update_issue_status(issueId, status: "Prepared")
+```
+
+The backend evaluates `Triaged → Prepared` readiness (KBT-RL051): all required checks must be green, otherwise a structured `ReadinessGateBlocked` (Hard) or `ReadinessGateSoftBlock` (Soft) BusinessException with `recommendation` is returned — pattern-match on `(missingCondition: ...)` to fix and retry, do not blindly retry.
+
+If the transition succeeds, report:
+
+**"[ISSUE CODE] transitioned to `Prepared`. All readiness checks pass:**
 - HasDescription: ✓
 - UserStories: ✓ (N linked)
 - Specifications: ✓ (N linked)
 - TestCases: ✓ (N linked)
 
-**Next step:** Invoke `kanbantic-issue-execute` to start implementation."
-
-Do **not** change the issue status. Execute will claim it (which transitions Triaged → InProgress).
+**Next step:** Invoke `kanbantic-issue-execute`. It will call `claim_issue(branch: ...)` which atomically assigns the issue and promotes `Prepared → InProgress` in a single MCP call (KBT-RL052)."
 
 ### 6b: Some checks still failing
 
-Report exactly which ones are failing and what's needed. The issue stays on Triaged. Offer to continue the dialogue or stop.
+Do **not** call `update_issue_status(Prepared)` — the gate would reject it. The issue stays on `Triaged`. Report exactly which checks are still failing and what's needed; offer to continue the dialogue or stop. Re-run the skill after the missing artifacts are added.
 
 ## Step 7: Handoff
 
-If 6a fires: hand off to `kanbantic-issue-execute`. If 6b fires: stop on Triaged until the missing artifacts are added.
+If 6a fires: issue is `Prepared`; hand off to `kanbantic-issue-execute`. If 6b fires: issue stays `Triaged` until the missing artifacts are added.
 
 ## Key Principles
 
 - **One skill, type-based routing** — the user doesn't choose between design / debugging / planning
-- **Triaged → ready-to-claim**, nothing more, nothing less
+- **Triaged → Prepared**, nothing more, nothing less (KBT-F235)
 - **Never create new issues** — intake skills do that
 - **Epics are sequential design+plan in one run** — leaving a half-prepared Epic is a failure mode
 - **Root cause before fix (Bug)** — prepare captures understanding, execute captures the fix

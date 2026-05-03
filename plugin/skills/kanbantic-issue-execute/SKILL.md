@@ -1,6 +1,6 @@
 ---
 name: kanbantic-issue-execute
-description: "Use when a Kanbantic issue needs to be implemented (Triaged + ready to claim). For Epics: executes the Implementation Plan phase by phase with per-phase push. For Features/Bugs: executes tasks directly without phases. Ends at status Review — handoff to kanbantic-issue-review for merge/close."
+description: "Use when a Kanbantic issue needs to be implemented (status Prepared, or Triaged with isReadyToClaim for legacy issues that pre-date KBT-F235). Calls claim_issue which atomically promotes Prepared/Triaged → InProgress (KBT-RL052). For Epics: executes the Implementation Plan phase by phase with per-phase push. For Features/Bugs: executes tasks directly without phases. Ends at status Review — handoff to kanbantic-issue-review for merge/close."
 ---
 
 # Kanbantic Issue Execute
@@ -21,8 +21,8 @@ This skill owns the **InProgress → Review** transition. It does NOT merge, clo
 
 ## Checklist
 
-1. **Gate-check** — verify issue is Triaged + ready to claim (HARD GATE)
-2. **Claim issue** — set status to InProgress, record branch
+1. **Gate-check** — verify issue is `Prepared` (preferred) or `Triaged` + ready to claim (legacy) (HARD GATE)
+2. **Claim issue** — atomically sets status to InProgress + records branch (single MCP call, KBT-RL052)
 3. **Load plan + knowledge** — get phases/tasks AND project patterns from Kanbantic
 4. **Execute** — depends on issue type:
    - **Epic** (has Implementation Plan): execute per phase with per-phase push + review gates
@@ -33,7 +33,7 @@ This skill owns the **InProgress → Review** transition. It does NOT merge, clo
 8. **Handoff** — instruct user/agent to invoke `kanbantic-issue-review`
 
 <HARD-GATE>
-Tasks can ONLY be started (set to InProgress) when the parent issue is in **InProgress** status. If the issue is not InProgress, you MUST claim it first (Step 2) before working on any task. NEVER start a task on an issue that is still in New, Triaged, or any other non-InProgress status.
+Tasks can ONLY be started (set to InProgress) when the parent issue is in **InProgress** status. If the issue is not InProgress, you MUST claim it first (Step 2) before working on any task. NEVER start a task on an issue that is still in New, Triaged, Prepared, or any other non-InProgress status.
 </HARD-GATE>
 
 ## Step 0: Ensure Repository Access
@@ -88,7 +88,7 @@ fi
 If the check passes (paths differ → you are in a worktree), continue silently.
 </HARD-GATE>
 
-## Step 1: Gate-check — Triaged + Ready to Claim
+## Step 1: Gate-check — Prepared (preferred) or Triaged (legacy) + Ready to Claim
 
 Before claiming, verify the issue is in the right state and has the required artifacts:
 
@@ -99,25 +99,27 @@ MCP: mcp__kanbantic__get_issue(issueId)
 Inspect the response:
 
 <HARD-GATE>
-- **`status`**: MUST be `Triaged`. If the issue is in `New`, stop and tell the user:
-  > "This issue is still `New`. Triage it first via the `kanbantic-issue-triage` skill before execution can start."
-  If the issue is in `InProgress` already, resume execution from Step 3. Any other status (Review, Done, Cancelled) → stop and ask the user what they want.
-- **`isReadyToClaim`**: MUST be `true`. If `false`, check `readinessChecks`:
-  - **Hard enforcement**: STOP. Tell the user which checks failed and redirect them to `kanbantic-issue-prepare` to supply the missing artifacts (specifications / test cases / user stories) before execution can start. Do not proceed.
-  - **Soft enforcement**: Warn the user which checks failed. Ask if they want to override. If yes, collect an `overrideReason` to pass in Step 2.
+- **`status`**: accepted bron-statuses for execute are:
+  - `Prepared` ← **preferred path**, the kanbantic-issue-prepare skill transitions here once readiness is green (KBT-F235).
+  - `Triaged` ← legacy bron — accepted only when `isReadyToClaim == true`. Used by issues that pre-date the data-migration to Prepared, or by single-session intake → triage → prepare → execute runs that did not yet take the Triaged → Prepared transition.
+  - `InProgress` ← already claimed by you in a previous session that crashed; resume execution from Step 3.
+  - Any other status (`New`, `Review`, `Done`, `Cancelled`) → STOP and redirect to the appropriate skill (triage / review / etc.).
+- **`isReadyToClaim`**: derived from `Status == Prepared` (KBT-SR266). For Prepared-status issues this is always `true`. For legacy Triaged-status issues, must be backed by green readiness-checks for the `Triaged → InProgress` gate. If `false` and the issue is on `Triaged`:
+  - **Hard enforcement**: STOP and redirect to `kanbantic-issue-prepare` to supply missing artifacts and transition to `Prepared`.
+  - **Soft enforcement**: warn which checks failed; collect an `overrideReason` to pass in Step 2.
 </HARD-GATE>
 
-The explicit `Triaged` check prevents execution of half-designed issues and couples this skill to the output of `kanbantic-issue-triage`. The explicit `isReadyToClaim` check prevents bypassing readiness gates.
+This gate prevents execution of half-designed issues and couples this skill to the output of `kanbantic-issue-triage` + `kanbantic-issue-prepare`.
 
 ## Step 2: Claim Issue and Create Branch
 
 <HARD-GATE>
-**`claim_issue` is the FIRST state-mutating MCP call of execute, before any other `update_issue_*` call.** Per `KBT-RL048`, calling `update_issue_status(InProgress)` before `claim_issue` is forbidden — `claim_issue` atomically:
+**`claim_issue` is the FIRST state-mutating MCP call of execute, before any other `update_issue_*` call.** Per `KBT-RL048` + `KBT-RL052`, calling `update_issue_status(InProgress)` before `claim_issue` is forbidden — `claim_issue` atomically:
 
 1. Validates the readiness gate (with optional `overrideReason` for Soft enforcement).
 2. Sets the assignee to the current agent.
 3. Records the branch on the issue.
-4. **Promotes the issue from `New`/`Triaged` to `InProgress` in the same call.**
+4. **Promotes the issue from `New`/`Triaged`/`Prepared` to `InProgress` in the same call** (KBT-RL052).
 
 Do **not** split this into `claim_issue` + a separate `update_issue_status(InProgress)` — the second call is unnecessary and historically the source of `MissingAssignee` errors when agents accidentally reversed the order.
 </HARD-GATE>
@@ -145,10 +147,12 @@ This means the execute-skill's claim step is **always one tool call**, regardles
 
 | Pre-state of the issue | Behavior of `claim_issue` |
 |---|---|
-| `Triaged`, no assignee | Fresh claim. Sets assignee, branch, status → `InProgress`. |
-| `Triaged`, assignee = self | Resume. Updates `claimedAt`+`branch`, promotes → `InProgress`. |
+| `Prepared`, no assignee | **Preferred path.** Fresh claim. Sets assignee, branch, status → `InProgress`. |
+| `Prepared`, assignee = self | Resume. Updates `claimedAt`+`branch`, promotes → `InProgress`. |
+| `Triaged`, no assignee | Legacy claim (pre-F2 issues). Sets assignee, branch, status → `InProgress`. |
+| `Triaged`, assignee = self | Legacy resume. Updates `claimedAt`+`branch`, promotes → `InProgress`. |
 | `InProgress`, assignee = self | Resume. Updates `claimedAt`+`branch`, status unchanged. |
-| `Triaged`/`InProgress`, assignee = other principal | Fails with structured `Kanbantic:IssueAlreadyAssigned` (see error handling below). |
+| `Prepared`/`Triaged`/`InProgress`, assignee = other principal | Fails with structured `Kanbantic:IssueAlreadyAssigned` (see error handling below). |
 
 ### Step 2 — Handling structured error responses
 

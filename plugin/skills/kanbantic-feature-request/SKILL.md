@@ -97,11 +97,12 @@ The issue lands in status `New` — that is Kanbantic's default for newly create
 
 Report:
 
-**"Feature [CODE] has been created in status New. Next steps:**
+**"Feature [CODE] has been created in status New. Next steps in the v0.10.0 lane-flow (8 statuses, 4 lane-skills):**
 
-1. **Triage** — run `kanbantic-issue-triage` for the go / no-go decision and to set priority / release / application details if they still need tweaking.
-2. **Prepare** — once Triaged, run `kanbantic-issue-prepare` to work out specs, user stories, and test cases until the issue is ready to claim.
-3. **Execute** — finally `kanbantic-issue-execute` to implement it."
+1. **Triage** — run `kanbantic-issue-triage` for the go / no-go decision (`New → Triaged`); sets priority / release / application details.
+2. **Prepare** — once Triaged, run `kanbantic-issue-prepare` to work out specs, user stories, and test cases (`Triaged → Prepared` on green readiness — Prepared is the dedicated ready-to-claim status since plugin v2.2.0 / KBT-F235).
+3. **Execute** — finally `kanbantic-issue-execute` claims the Prepared issue (atomic `Prepared → InProgress`) and drives it through to `Review` when all tasks are Done and tests Passed.
+4. **Review + Deploy** — `kanbantic-issue-review` reviews + merges + transitions to `InDeployment` (since plugin v2.3.0 / KBT-F236); the operational deploy webhooks + manual `update_issue_status(status: \"Done\")` complete the journey to `Done`."
 
 No other MCP calls. Stop after printing the handoff.
 

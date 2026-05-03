@@ -154,11 +154,14 @@ Only skip if the bug is too vague AND the workspace does not enforce test covera
 
 After the bug is created:
 
-**"Bug [CODE] has been created. What would you like to do next?"**
+**"Bug [CODE] has been created in status New. Next steps in the v0.10.0 lane-flow (8 statuses, 4 lane-skills):**
 
-Offer options:
-1. **Investigate now** — invoke `kanbantic-debugging` skill (systematic root cause analysis + fix)
-2. **Done for now** — leave it for triage
+1. **Triage** — run `kanbantic-issue-triage` for the go / no-go decision (`New → Triaged`).
+2. **Prepare** — once Triaged, run `kanbantic-issue-prepare` to add the root-cause analysis + repro steps + regression test (`Triaged → Prepared` on green readiness).
+3. **Execute** — `kanbantic-issue-execute` claims the Prepared issue (atomic `Prepared → InProgress`) and drives it through to `Review` after the fix is implemented.
+4. **Review + Deploy** — `kanbantic-issue-review` reviews + merges + transitions to `InDeployment` (since plugin v2.3.0 / KBT-F236); deploy webhooks + manual `update_issue_status(status: \"Done\")` complete the journey to `Done`."
+
+(The legacy `kanbantic-debugging` skill was consolidated into `kanbantic-issue-prepare` in plugin v2.0.0 — use prepare for the systematic root-cause analysis + fix-task setup.)
 
 ## Key Principles
 

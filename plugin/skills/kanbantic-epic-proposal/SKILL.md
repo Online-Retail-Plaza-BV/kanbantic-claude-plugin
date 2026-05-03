@@ -114,11 +114,12 @@ The issue lands in status `New` — Kanbantic's default. Intake never auto-triag
 
 Report:
 
-**"Epic [CODE] has been created in status New. Next steps:**
+**"Epic [CODE] has been created in status New. Next steps in the v0.10.0 lane-flow (8 statuses, 4 lane-skills):**
 
-1. **Triage** — run `kanbantic-issue-triage` for the go / no-go decision and to confirm application, initiative, release, and priority.
-2. **Prepare** — once Triaged, run `kanbantic-issue-prepare` to work out specs, user stories, and the full implementation plan (phases + tasks + code instructions) in one sequential skill-run.
-3. **Execute** — finally `kanbantic-issue-execute` to implement phase by phase with review gates."
+1. **Triage** — run `kanbantic-issue-triage` for the go / no-go decision (`New → Triaged`); confirm application, initiative, release, and priority.
+2. **Prepare** — once Triaged, run `kanbantic-issue-prepare` to work out specs, user stories, and the full implementation plan (phases + tasks + code instructions) in one sequential skill-run (`Triaged → Prepared` on green readiness — Prepared is the dedicated ready-to-claim status since plugin v2.2.0 / KBT-F235).
+3. **Execute** — `kanbantic-issue-execute` claims the Prepared Epic (atomic `Prepared → InProgress`) and implements phase by phase with per-phase review gates.
+4. **Review + Deploy** — `kanbantic-issue-review` reviews + merges + transitions to `InDeployment` (since plugin v2.3.0 / KBT-F236); deploy webhooks + manual `update_issue_status(status: \"Done\")` complete the journey to `Done`."
 
 No other MCP calls. Stop after printing the handoff.
 

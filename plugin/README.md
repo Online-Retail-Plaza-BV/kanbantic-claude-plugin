@@ -2,32 +2,41 @@
 
 Claude plugin for Kanbantic issue lifecycle management. All artifacts are created and managed through Kanbantic MCP tools — no local file output.
 
-## Skills
+## Skill ↔ Lane mapping (plugin v2.3.0)
 
-| Skill | Command | Description |
-|-------|---------|-------------|
-| `kanbantic-bug-report` | `/report-bug` | Intake: report a bug (no design phases) |
-| `kanbantic-feature-request` | `/request-feature` | Intake: propose a Feature (creates Feature issue in `New`) |
-| `kanbantic-epic-proposal` | `/propose-epic` | Intake: propose an Epic (creates Epic issue in `New`) |
-| `kanbantic-issue-triage` | `/triage-issue` | Triage a New issue: go → Triaged (+metadata) or no-go → Cancelled (+reason) |
-| `kanbantic-issue-prepare` | `/prepare-issue` | Work a Triaged issue until `isReadyToClaim=true`. Routes on `issue.type` (Feature / Bug / Epic) |
-| `kanbantic-issue-execute` | `/execute-issue` | Execute an issue: claim, implement tasks, push, transition to Review |
-| `kanbantic-issue-review` | *(auto)* | Review + merge + close + knowledge-extractie — completes Review → Done |
+Three intake-skills create issues; four lane-skills move them through the eight statuses; deploy webhooks complete the journey to production.
 
-## Workflow
+| Source lane | Target lane | Skill | Command | Mode |
+|-------------|-------------|-------|---------|------|
+| — | **New** | `kanbantic-bug-report` | `/report-bug` | Intake (Bug) |
+| — | **New** | `kanbantic-feature-request` | `/request-feature` | Intake (Feature) |
+| — | **New** | `kanbantic-epic-proposal` | `/propose-epic` | Intake (Epic) |
+| New | Triaged *or* Cancelled | `kanbantic-issue-triage` | `/triage-issue` | Lane-skill (go/no-go) |
+| Triaged | **Prepared** | `kanbantic-issue-prepare` | `/prepare-issue` | Lane-skill (artifacts) |
+| Prepared | **InProgress** | `kanbantic-issue-execute` | `/execute-issue` | Lane-skill (atomic claim) |
+| InProgress | Review | `kanbantic-issue-execute` | (continues) | Lane-skill (implementation) |
+| Review | **InDeployment** | `kanbantic-issue-review` | *(auto via /loop-style chain)* | Lane-skill (merge + transition) |
+| InDeployment | Done | (deploy webhooks + manual `update_issue_status`) | — | Operational gate |
+
+**Lane-flow** (8 statuses; `Cancelled` is terminal from any non-Done, non-InDeployment status):
 
 ```
-/report-bug ─────┐
-                  ├──▶ (New) ──▶ triage ──▶ (Triaged) ──▶ /prepare-issue ──▶ (ready) ──▶ /execute-issue ──▶ (Review) ──▶ issue-review ──▶ (Done)
-feature-request ─┤
-epic-proposal ───┘
+intake → New → triage → Triaged → prepare → Prepared → execute → InProgress → execute → Review → review → InDeployment → deploy → Done
 ```
 
-1. **Intake** — `kanbantic-bug-report`, `kanbantic-feature-request`, `kanbantic-epic-proposal` create the issue (status `New`)
-2. **Triage** — `kanbantic-issue-triage` decides go / no-go, sets priority / release / application (`New → Triaged`)
-3. **Prepare** — `kanbantic-issue-prepare` works the issue out until `isReadyToClaim=true`; routes internally on `issue.type`
-4. **Execute** — `kanbantic-issue-execute` claims, implements tasks, pushes, transitions to Review
-5. **Review** — `kanbantic-issue-review` reviews against specs, approves/rejects, merges to main, closes, optional knowledge-extractie
+**Key invariants** (since plugin v2.3.0 / KBT-F236):
+
+- `isReadyToClaim` is **derived** from status (`Prepared ⟺ true`) — it is no longer settable explicitly.
+- Direct `Triaged → InProgress` is **blocked** (use `/prepare-issue` first).
+- Direct `InDeployment → InProgress` and `InDeployment → Cancelled` are **blocked at the Domain layer** (use `Review` for rollback or `Done` for post-deploy completion).
+- The `kanbantic-issue-review` skill transitions to `InDeployment` after merge — the Done-transition is a separate operational step (deploy webhooks + smoke + manual `update_issue_status(status: "Done")`). Auto-transition via `GateEvaluationService` is deferred to KBT-INI032 Epic D.
+- Existing `Triaged-with-isReadyToClaim=true` and `Review-with-merged-branch` issues are migrated automatically by the backend `PreparedStatusBackfillSeeder` and `InDeploymentBackfillSeeder` on first post-deploy startup.
+
+## Version history
+
+- **v2.3.0** — InDeployment lane (KBT-F236): new status between Review and Done; `kanbantic-issue-review` transitions to InDeployment after merge.
+- **v2.2.0** — Prepared lane (KBT-F235): new status between Triaged and InProgress; `kanbantic-issue-prepare` transitions to Prepared on green readiness.
+- **v2.0.0** — Lane Workflow Skills (KBT-INI033): one skill per lane transition; consolidates the legacy `kanbantic-issue-design` + `kanbantic-issue-planning` + `kanbantic-debugging` into `kanbantic-issue-prepare`; renames `kanbantic-issue-executing` → `kanbantic-issue-execute` and `kanbantic-code-review` → `kanbantic-issue-review`.
 
 ## Architecture
 

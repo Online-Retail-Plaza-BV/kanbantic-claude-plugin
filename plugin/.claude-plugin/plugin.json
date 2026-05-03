@@ -1,7 +1,7 @@
 {
   "name": "kanbantic-claude-plugin",
-  "version": "2.2.0",
-  "description": "Kanbantic issue lifecycle skills: intake (report / request / propose), triage, prepare, execute, review — all artifacts via Kanbantic MCP. v2.2.0 introduces the Prepared status (KBT-F235): kanbantic-issue-prepare now transitions Triaged → Prepared on success, and kanbantic-issue-execute accepts Prepared as the preferred bron-status (Triaged remains supported for legacy issues). See RELEASE_NOTES_v2.2.0.md.",
+  "version": "2.3.0",
+  "description": "Kanbantic issue lifecycle skills: intake (report / request / propose), triage, prepare, execute, review — all artifacts via Kanbantic MCP. v2.3.0 introduces the InDeployment status (KBT-F236): kanbantic-issue-review now transitions Review → InDeployment on merge instead of directly to Done. The InDeployment → Done transition is operational (deploy webhooks + manual update_issue_status) until KBT-INI032 Epic D ships GateEvaluationService for auto-promotion. v2.2.0 introduced Prepared (KBT-F235). See RELEASE_NOTES_v2.3.0.md.",
   "author": {
     "name": "Kanbantic"
   }

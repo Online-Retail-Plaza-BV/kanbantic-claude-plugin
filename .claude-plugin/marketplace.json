@@ -10,9 +10,9 @@
   "plugins": [
     {
       "name": "kanbantic-claude-plugin",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "source": "./plugin",
-      "description": "Issue lifecycle skills: intake (report / request / propose), triage, prepare, execute, review — all artifacts via Kanbantic MCP. v2.2.0 adds the Prepared lane status (KBT-F235)."
+      "description": "Issue lifecycle skills: intake (report / request / propose), triage, prepare, execute, review — all artifacts via Kanbantic MCP. v2.3.0 adds the InDeployment lane status (KBT-F236) between Review and Done."
     }
   ]
 }

@@ -291,17 +291,31 @@ If `approve_review` fails (e.g. the issue is no longer in `Review` status
 because someone bounced it back), stop the skill and report the error. Do
 NOT proceed to Step 8 — the gate cannot clear without a successful approval.
 
-## Step 8: Close Issue
+## Step 8: Transition to InDeployment
 
 <IMPORTANT>
 Step 8 runs only after Step 7 completed successfully (merge **and** push both succeeded; local branch delete succeeded; remote delete is a warning-only) **and** Step 7.5 recorded a ReviewApproval row.
 </IMPORTANT>
 
+Since plugin **v2.3.0** (KBT-F236) the review-skill transitions the issue to `InDeployment`, not directly to `Done`. The Done-transition is a separate operational step that runs after staging+production deploy verification.
+
 ```
-MCP: mcp__kanbantic__update_issue_status(issueId, status: "Done")
+MCP: mcp__kanbantic__update_issue_status(issueId, status: "InDeployment")
 ```
 
-If the workspace's readiness gate blocks `Review → Done` (missing Specifications Approved / missing E2E test level / **missing Review Approved** / etc.), the call returns a `ReadinessGateBlocked` error. Surface the blocking checks to the user and stop — do **not** override without explicit instruction. The merge is already on main, so the issue stays on `Review` until the gate clears.
+`Review → InDeployment` has no readiness-gate at the issue layer (KBT-RL053): the merge to main itself is the implicit gate, and Step 7 already verified both the merge and the push succeeded. The transition should always succeed unless the issue was bounced back to a different status by another agent in parallel.
+
+After this transition, surface the deploy-instructions to the caller:
+
+> **Issue [CODE] merged + transitioned to `InDeployment`.**
+> Next operational steps (manual until KBT-INI032 Epic D ships `GateEvaluationService`):
+> 1. Trigger the staging deploy webhook for the workspace.
+> 2. Smoke-test against `https://staging.<domain>` to verify the change is live and behaves correctly.
+> 3. Trigger the production deploy webhook.
+> 4. Smoke-test against production.
+> 5. Manually transition the issue to `Done` via `update_issue_status(status: "Done")` — the standard Done-readiness gate (all test cases Passed, all specs Approved, no pending Document Impacts, etc.) still applies.
+
+If the deploy fails: transition back to `Review` (`update_issue_status(status: "Review")`) so the implementer can pick up fix-tasks. **Do NOT** transition `InDeployment → Cancelled` directly — the Domain layer blocks that transition (KBT-RL053); cancel from Review (pre-deploy rollback) or from Done (post-deploy hotfix-rollback).
 
 ## Step 9: Knowledge-Extractie (optional)
 

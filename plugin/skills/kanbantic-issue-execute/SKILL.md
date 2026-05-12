@@ -88,6 +88,36 @@ fi
 If the check passes (paths differ → you are in a worktree), continue silently.
 </HARD-GATE>
 
+## Step 0.6: Sync check — base must not be stale vs origin (KBT-F238 / KBT-SR302)
+
+Now that the worktree HARD-GATE has confirmed you are in a worktree (and **before** any status-mutating call), verify that the local base is **not behind `origin/<default-branch>`**. A stale base is the single biggest avoidable source of merge conflicts at review-time — especially when multiple parallel agents work on the same Epic.
+
+```bash
+pwsh -NoProfile -File "$CLAUDE_PLUGIN_ROOT/hooks/git-sync-check.ps1" Pull "$PWD"
+```
+
+The script emits a single-line JSON result. Possible `action` values:
+
+| `action` | Meaning | Skill behavior |
+|---|---|---|
+| `up-to-date` | base is current with origin | continue silently |
+| `pulled` | rebased feature-branch onto fresh origin | log a `Comment` discussion-entry summarising `behindCount` + new HEAD sha |
+| `force-continue` | operator chose Force; base is still stale | log a `Decision` discussion-entry per KBT-RL063 |
+| `rebase-conflict` | rebase produced conflicts; aborted | log a `Decision`-entry warning that manual merge may be needed later |
+| `aborted` | operator chose Abort | STOP — do not call `claim_issue` |
+| `skipped-env` | `KANBANTIC_SKIP_GIT_SYNC=1` set | log a `Comment` recording the opt-out |
+| `no-origin` / `detached-head` / `fetch-failed` / `not-a-repo` | degenerate environment | log a `Comment`; continue (never block on environment) |
+
+After the check (and any required discussion-entry has been added), proceed to Step 1.
+
+### Opt-out
+
+Set `KANBANTIC_SKIP_GIT_SYNC=1` to skip the comparison entirely. Intended for CI / headless contexts where the outer wrapper already guarantees a fresh fetch, or where interactive prompts are impossible. The skip is logged as a `Comment` discussion-entry so the audit trail stays complete.
+
+### Default action (non-interactive)
+
+`-DefaultAction Pull` is the default — when the local base is behind, the script rebases the feature-branch onto `origin/<default-branch>` automatically. Pass `Force` to log a Decision-entry and proceed without rebasing, or `Abort` to stop the skill. Interactive callers (a human running the skill from a terminal) should prompt the operator and pass the chosen action through.
+
 ## Step 1: Gate-check — Prepared (preferred) or Triaged (legacy) + Ready to Claim
 
 Before claiming, verify the issue is in the right state and has the required artifacts:

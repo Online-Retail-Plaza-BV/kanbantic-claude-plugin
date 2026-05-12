@@ -648,7 +648,29 @@ MCP: mcp__kanbantic__get_issue(issueId)
 
 Confirm `isReadyToClaim` is still true (or that soft-override is acceptable). Report to the user if checks degraded.
 
-### 7d: Transition
+### 7d: Promote linked user stories to `Implemented` (KBT-RL064 Invariant 1)
+
+Every user story linked to this issue (via `userStoryId` or the issue's
+`linkedUserStories` collection) MUST flip from `NotImplemented` to
+`Implemented` here — after tasks are Done and tests Passed but **before** the
+Review transition. This is the first half of the `update_validation_status`
+lifecycle; the second half (`Implemented → Validated`) runs in
+`kanbantic-issue-review` Step 7.5b after final-approve.
+
+```
+# Skip silently if the issue has no linked user stories.
+MCP: mcp__kanbantic__get_user_story_with_requirements  // per linked story
+MCP: mcp__kanbantic__update_validation_status(
+  userStoryId,
+  status: "Implemented"
+)
+```
+
+Failure of `update_validation_status` here is logged as a `Comment`
+discussion entry on the issue and does NOT block the Review transition — the
+data-integrity fix is best-effort and a follow-up Bug captures any failures.
+
+### 7e: Transition
 
 ```
 MCP: mcp__kanbantic__update_issue_status(issueId, status: "Review")

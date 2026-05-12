@@ -118,6 +118,37 @@ Set `KANBANTIC_SKIP_GIT_SYNC=1` to skip the comparison entirely. Intended for CI
 
 `-DefaultAction Pull` is the default — when the local base is behind, the script rebases the feature-branch onto `origin/<default-branch>` automatically. Pass `Force` to log a Decision-entry and proceed without rebasing, or `Abort` to stop the skill. Interactive callers (a human running the skill from a terminal) should prompt the operator and pass the chosen action through.
 
+## Step 0.7: ABP license pre-flight — backend issues only (KBT-F263 / KBT-SR307 / KBT-RL066)
+
+For issues that touch the Kanbantic API or MCP host (anything that runs `dotnet run` on `Kanbantic.HttpApi.Host` or `Kanbantic.Mcp`), verify the ABP Pro license-runtime is satisfied **before** `claim_issue`. A stale `abp` CLI auth-token causes backend-startup to fail mid-flight with `ABP-LIC-ERROR — License check failed`, leaving an orphan `InProgress` claim that has to be cleaned up manually (see KBT-GTCH013, KBT-CMND007).
+
+```bash
+pwsh -NoProfile -File "$CLAUDE_PLUGIN_ROOT/hooks/abp-license-check.ps1" "<applicationSlug>" "<tagsCsv>" "$PWD"
+```
+
+Pass the issue's `applicationSlug` (from `get_issue`) and a comma-separated string of its `tags`. The hook's scope-gate runs the actual checks only for `kanbantic-api` / `kanbantic-mcp` or for any tags containing `backend` / `live-stack` — frontend-only and plugin-only work skips the check transparently.
+
+The script emits a single-line JSON result. Possible `action` values:
+
+| `action` | Meaning | Skill behavior |
+|---|---|---|
+| `ok` | env-var set, token present and fresh | continue silently |
+| `out-of-scope` | issue's application / tags do not require the ABP Pro license-runtime | continue silently |
+| `skipped-env` | `KANBANTIC_SKIP_ABP_CHECK=1` set | log a `Comment` discussion-entry recording the opt-out; continue |
+| `missing-env-var` | `ABP_LICENSE_CODE` not set on Process / User / Machine scope | STOP — add a `Decision` entry with `[Environment]::SetEnvironmentVariable('ABP_LICENSE_CODE','<your-license>','User')` fix instruction; do not call `claim_issue` |
+| `missing-token` | `$USERPROFILE\.abp\cli\access-token.bin` missing | STOP — Decision entry: run `abp login <username>` in a non-agent shell (interactive credentials) and restart |
+| `stale-token` | token `LastWriteTime` exceeds threshold (default 7 days) | STOP — Decision entry: token is `tokenAgeDays` old (threshold `thresholdDays`), re-run `abp login <username>` to refresh |
+
+After a FAIL (`missing-env-var` / `missing-token` / `stale-token`) the hook exits 1; the skill MUST stop here so the issue stays in `Prepared` / `Triaged`. Add the `Decision` discussion-entry from the rule-table above, then exit cleanly. The operator fixes the auth-state manually and re-invokes the skill.
+
+### Opt-out
+
+Set `KANBANTIC_SKIP_ABP_CHECK=1` to skip the check entirely. Intended for CI / headless contexts where backend startup is mocked, or for explicit operator override during incident-recovery. The skip is logged as a `Comment` discussion-entry so the audit trail stays complete (mirrors KBT-F238's `KANBANTIC_SKIP_GIT_SYNC` pattern).
+
+### Token-age threshold
+
+Default is 7 days. Override per session via env-var `KANBANTIC_ABP_TOKEN_MAX_AGE_DAYS=<int>`. Empirically a 10-day-old token is already enough to fail `dotnet run` (KBT-F257 incident, 2026-05-12); 7d gives a safety margin without being aggressive.
+
 ## Step 1: Gate-check — Prepared (preferred) or Triaged (legacy) + Ready to Claim
 
 Before claiming, verify the issue is in the right state and has the required artifacts:

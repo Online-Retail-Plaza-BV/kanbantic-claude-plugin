@@ -7,7 +7,7 @@ description: "Use after kanbantic-issue-execute marks an issue Review (or to run
 
 ## Overview
 
-Complete the Review → Done lane transition. This skill:
+Complete the Review → InDeployment lane transition (per KBT-RL053; backend auto-promotes to Done on merge or remains InDeployment until deploy-gate clears, KBT-F236). This skill:
 
 1. Reviews completed implementation against Kanbantic specifications and test cases
 2. Dispatches a reviewer subagent for categorized feedback
@@ -131,9 +131,9 @@ The review skill's scope is per-level:
 For Epic / standalone-Feature / Bug review, the legacy gate applies:
 
 - If `status == "Review"` → continue silently.
-- If `status == "New"` → STOP. Report: "Issue [CODE] is still in status `New`. Run `/triage-issue [CODE]` first to move it to Triaged."
-- If `status == "Triaged"` → STOP. Report: "Issue [CODE] is Triaged but not yet executed. Run `/prepare-issue [CODE]` (if artifacts missing) and `/execute-issue [CODE]` before review can run."
-- If `status == "InProgress"` → STOP. Report: "Issue [CODE] is still `InProgress`. `/execute-issue` must transition it to Review before review can run."
+- If `status == "New"` → STOP. Report: "Issue [CODE] is still in status `New`. Run `kanbantic-issue-triage [CODE]` first to move it to Triaged."
+- If `status == "Triaged"` → STOP. Report: "Issue [CODE] is Triaged but not yet executed. Run `kanbantic-issue-prepare [CODE]` (if artifacts missing) and `kanbantic-issue-execute [CODE]` before review can run."
+- If `status == "InProgress"` → STOP. Report: "Issue [CODE] is still `InProgress`. `kanbantic-issue-execute` must transition it to Review before review can run."
 - If `status == "Done"` → STOP. Report: "Issue [CODE] is already `Done`. No review needed — this skill is an idempotent no-op here."
 - If `status == "Cancelled"` → STOP. Report: "Issue [CODE] was `Cancelled`. Nothing to review."
 
@@ -359,6 +359,31 @@ MCP: mcp__kanbantic__approve_review(
 If `approve_review` fails (e.g. the issue is no longer in `Review` status
 because someone bounced it back), stop the skill and report the error. Do
 NOT proceed to Step 8 — the gate cannot clear without a successful approval.
+
+### Step 7.5b: Promote linked user stories to `Validated` (KBT-RL064 Invariant 1)
+
+After a successful `approve_review` on the **Epic / standalone-Feature / Bug**
+final-approve path (this Step 7.5), promote every user story linked to the
+issue from `Implemented` to `Validated`. This is the second half of the
+`update_validation_status` lifecycle — the first half runs in
+`kanbantic-issue-execute` Step 7d (NotImplemented → Implemented).
+
+Do **NOT** call this from the Feature-level mini-review approve in Step 5a
+(line ≈239) — per-Feature mini-approves are not the canonical promotion
+point. Validation cascades up to the final Epic / standalone approve only.
+
+```
+# Skip silently if the issue has no linked user stories.
+MCP: mcp__kanbantic__get_user_story_with_requirements  // per linked story
+MCP: mcp__kanbantic__update_validation_status(
+  userStoryId,
+  status: "Validated"
+)
+```
+
+Failure of `update_validation_status` is logged as a `Comment` discussion
+entry on the issue and does NOT block the merge in Step 7 — the data-integrity
+fix is best-effort at this stage and a follow-up issue captures any failures.
 
 ### Fallback if `approve_review` is unavailable (KBT-B200)
 

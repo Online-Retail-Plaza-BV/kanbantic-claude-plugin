@@ -184,6 +184,53 @@ git diff main..HEAD
 
 For new-shape Epics where each Feature was already mini-reviewed at Feature-level, the Epic-level review is a **lightweight cross-Phase coherence check** — focus on integration points between Phases, not per-Task code-walk.
 
+## Step 2.5: Automated routing-mandate pre-check (KBT-B252 / KBT-RL069 / KBT-TC1976)
+
+Before dispatching the reviewer subagent, run a deterministic grep on the diff for `WebApplicationFactory<Program>` introduced in C# integration-test files. The class-of-bug behind KBT-B249 (test-pipeline routing-volgorde ≠ productie routing-volgorde) is best caught by `KanbanticIntegrationTestBase` adoption; a reviewer can easily miss this in a large diff.
+
+```bash
+# Scope: only added lines under any *.IntegrationTests*/*.cs path.
+# Uses --unified=1 so the line *before* each added line is visible for `// approved:`-marker suppression.
+DIFF_BASE="<base-sha-from-step-2>"
+DIFF_HEAD="HEAD"
+
+git diff --unified=1 "$DIFF_BASE...$DIFF_HEAD" -- 'test/' \
+  | awk '
+    /^\+\+\+ b\/.+IntegrationTests.+\.cs$/ { file=substr($0,7); next }
+    /^@@/                                    { prev=""; next }
+    /^ /                                     { prev=substr($0,2); next }
+    /^\+/ && !/^\+\+\+/ {
+        line=substr($0,2);
+        if (line ~ /WebApplicationFactory<Program>/) {
+            if (prev !~ /\/\/[[:space:]]*approved:[[:space:]]*.{20,}/) {
+                printf("- %s — forbidden pattern introduced without // approved:-marker\n  >> %s\n", file, line);
+            }
+        }
+        prev=line;
+    }
+  '
+```
+
+If the awk-block produces output, prepend an **Important** finding to the reviewer's feedback (in Step 4) using this template:
+
+```markdown
+### Important
+- **Routing-mandate violation (KBT-B252 / KBT-RL069).** New integration-test
+  code introduces `WebApplicationFactory<Program>` without a `// approved:`-marker:
+  <paste awk output>
+
+  Use `KanbanticIntegrationTestBase` (or directly extend
+  `AbpAspNetCoreAsyncIntegratedTestBase<TModule>`) instead. Background:
+  KBT-B249 (anchor incident), KBT-TRUL016 (workspace Toolkit Rule),
+  KBT-RL069 (specification). If the use is intentional (e.g. minimal-pipeline
+  middleware-isolation test), add `// approved: <reason >=20 chars>` on the
+  line above and re-run review.
+```
+
+The CI grep-backstop (`.github/workflows/routing-mandate-check.yml` — KBT-SR322 / KBT-TC1975) is the hard-fail layer; this step is the early-warning layer that surfaces the issue in human-readable review feedback before CI rejects the PR.
+
+Skip this step when the diff contains no `*.IntegrationTests*/*.cs` changes — the awk block is a no-op in that case.
+
 ## Step 3: Dispatch Reviewer Subagent
 
 Use the reviewer template at `reviewer-prompt.md` in this directory.

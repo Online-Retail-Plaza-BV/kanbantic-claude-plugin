@@ -55,6 +55,13 @@ Agent tool (superpowers:code-reviewer):
        - No security vulnerabilities
        - Clean, maintainable code
        - YAGNI — no over-engineering
+       - **Routing-mandate (KBT-B252 / KBT-RL069 / KBT-TRUL016):** If any new
+         file under `test/**/*IntegrationTests*/**/*.cs` introduces
+         `WebApplicationFactory<Program>` (incl. as `IClassFixture<...>`),
+         the change MUST either inherit `KanbanticIntegrationTestBase` (or
+         directly extend `AbpAspNetCoreAsyncIntegratedTestBase<TModule>`),
+         or include a `// approved: <reason >=20 chars>` comment on the
+         line directly above the usage. Flag as **Important**.
 
     4. **Architecture**:
        - Proper separation of concerns

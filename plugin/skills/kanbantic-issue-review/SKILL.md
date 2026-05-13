@@ -196,10 +196,20 @@ DIFF_HEAD="HEAD"
 
 git diff --unified=1 "$DIFF_BASE...$DIFF_HEAD" -- 'test/' \
   | awk '
-    /^\+\+\+ b\/.+IntegrationTests.+\.cs$/ { file=substr($0,7); next }
+    # On every "+++ b/..." header, decide whether the file matters.
+    # Setting in_target=0 on non-target headers prevents cross-file mis-attribution
+    # (a violation under a non-IntegrationTests file used to attach to the previous
+    # IntegrationTests file before this gate was introduced).
+    /^\+\+\+ /                               {
+        in_target = ($0 ~ /^\+\+\+ b\/.+IntegrationTests.+\.cs$/);
+        if (in_target) file = substr($0, 7);
+        prev = "";
+        next
+    }
     /^@@/                                    { prev=""; next }
-    /^ /                                     { prev=substr($0,2); next }
+    /^ /                                     { if (in_target) prev=substr($0,2); next }
     /^\+/ && !/^\+\+\+/ {
+        if (!in_target) next;
         line=substr($0,2);
         if (line ~ /WebApplicationFactory<Program>/) {
             if (prev !~ /\/\/[[:space:]]*approved:[[:space:]]*.{20,}/) {

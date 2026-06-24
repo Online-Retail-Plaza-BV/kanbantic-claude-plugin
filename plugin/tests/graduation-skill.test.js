@@ -211,9 +211,15 @@ test('KBT-TC2733: Step 5 description format includes both acText and [storyCode]
   assert.ok(step5Body.includes('storyCode'),
     'Step 5 description must include storyCode — the US reference is required by KBT-RL123');
   // Must use square brackets around storyCode per KBT-RL123 spec: "Afgeleide van AC op [KBT-US-XXX]"
+  // Opening bracket: "Afgeleide van AC op ["
   assert.ok(
     step5Body.includes('"Afgeleide van AC op ["') || step5Body.includes("'Afgeleide van AC op ['"),
-    'Step 5 description format must wrap storyCode in square brackets: "Afgeleide van AC op [" + storyCode + "]" (KBT-RL123)'
+    'Step 5 description format must open storyCode bracket: "Afgeleide van AC op [" (KBT-RL123)'
+  );
+  // Closing bracket: + "]:\n\"" — the \n is a literal escape sequence within the markdown code block
+  assert.ok(
+    step5Body.includes('+ "]:\\n\\"'),
+    'Step 5 description format must close storyCode bracket: + "]:\\n\\"" (KBT-RL123 full format)'
   );
 });
 

@@ -157,12 +157,17 @@ No opt-out, no override — the skill's scope is by definition Review → InDepl
 ```
 MCP: mcp__kanbantic__list_specifications(workspaceId)
 MCP: mcp__kanbantic__list_test_cases(workspaceId, issueId)
+MCP: mcp__kanbantic__list_discussion_entries(issueId)
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Rule")
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Pattern")
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Gotcha")
 ```
 
 Build a requirements checklist from specifications and test cases.
+
+**Test-policy (Regel E / KBT-F442):** From the discussion entries, locate the entry whose content starts with `## Test-policy (bevroren bij claim_issue — KBT-F442 / Regel E)`. Parse the table to extract, per level (Unit / Integration / E2E): Applicability (`Vereist` / `N.v.t.`) + Minimum count + N.v.t.-rationale. Also count the actual `Passed` test cases per level from `list_test_cases`. Store as `frozenPolicy` with actual counts.
+
+If no test-policy entry is found for a Feature / Bug issue, treat all three levels as Vereist/min=1 and flag the absence as a Critical review issue (the prepare-step was incomplete).
 
 Include Rules, Patterns, and Gotchas in the review context — the reviewer should verify code adheres to project rules and follows established patterns.
 

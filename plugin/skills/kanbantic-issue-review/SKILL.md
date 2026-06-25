@@ -322,6 +322,39 @@ If this is **not** the final approve, report:
 Then STOP. Do NOT proceed to Step 7/8/9.
 </HARD-GATE>
 
+## Step 6.5: Deferred-Cancel Scan (Epic final-approve only — KBT-F450)
+
+**Only runs when this is the final Epic-level approve (Step 6 → "Epic" path).** Skip for Feature-level, Phase-level, and Standalone-Feature/Bug reviews.
+
+Scan for cancelled child Features/Bugs that have deferred work without a tracked follow-up issue:
+
+```
+MCP: mcp__kanbantic__list_issues(workspaceId, parentIssueId: <epicId>, status: "Cancelled")
+```
+
+For each cancelled child where `followUpIssueId` is null:
+
+```
+MCP: mcp__kanbantic__list_discussion_entries(issueId: <childId>)
+```
+
+Look for a Decision-entry whose content contains any of these keywords (case-insensitive):  
+`deferred`, `vervolgwerk`, `follow-up`, `followup`, `uitgesteld`, `later`, `postponed`
+
+If a deferral keyword is found AND `followUpIssueId` is null → flag as a **Critical issue** in the reviewer output:
+
+```
+⚠️ UITGESTELD WERK ZONDER FOLLOW-UP — KBT-F450
+[childCode] ([childTitle]): geannuleerd met reden die uitstel aangeeft maar heeft geen follow-up issue gelinkt.
+Actie vereist (kies één):
+  A) Link een follow-up issue: update_issue_status(issueId: "[childCode]", status: "Cancelled", reason: "<reden>", followUpIssueId: "<id van follow-up issue>")
+  B) Override NoUntrackedDeferrals gate bij Epic-Done: update_issue_status(issueId: "[epicCode]", status: "Done", overrideReason: "<≥20-char reden waarom geen follow-up nodig is>")
+```
+
+This check mirrors the `NoUntrackedDeferrals` server-side readiness gate (KBT-F450). Surfacing it here before merge prevents the Done transition from failing after an otherwise-successful review.
+
+If no untracked deferrals are found → continue silently.
+
 ## Step 7: Merge + Push + Cleanup
 
 Execute the merge to main with a no-ff merge commit so the merge-historie zichtbaar blijft:

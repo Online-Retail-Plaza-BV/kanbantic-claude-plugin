@@ -199,9 +199,35 @@ MCP: mcp__kanbantic__create_test_case(
 )
 ```
 
-Test-case test-levels should aim for Unit + Integration + E2E coverage where sensible — the Review → Done gate later enforces `Unit + Integration + E2E` diversity per `KBT-RL012`.
+Test-case test-levels should aim for Unit + Integration + E2E coverage where sensible.
 
-### 5F.5: Decision entry
+### 5F.5: Test-policy declaratie (Regel E / KBT-F442)
+
+Declare the per-level test-policy for this Feature **before transitioning to Prepared**. The physical database-freeze happens when `kanbantic-issue-execute` calls `claim_issue`, but the declaration must be captured now as a `Decision` entry so the executing agent and reviewer can both read it.
+
+Determine per level:
+
+| Niveau | Standaard | N.v.t.-uitzondering |
+|---|---|---|
+| **Unit** | Vereist / min 1 | Alleen als er nul logische code-paden zijn (bijv. puur data-migratie, DTO-only) |
+| **Integration** | Vereist / min 1 | Alleen bij pure client-side issues zonder service-/DB-aanroepen |
+| **E2E** | Vereist / min 1 (real-proxy voor plugin; Playwright voor UI) | Geen UI-oppervlak EN geen publieke API-oppervlak (pure domain-logica / parser / achtergrondtaak) |
+
+Rules:
+- Default alle drie niveaus naar **Vereist / minimum 1**.
+- N.v.t. vereist een **rationale van ≥20 chars** die verklaart waarom het niveau niet van toepassing is.
+- Zet **niet** alle drie op N.v.t. — minstens één niveau moet Vereist zijn.
+- Deze declaratie vervangt KBT-TRUL013 (opgeheven per KBT-F449).
+
+```
+MCP: mcp__kanbantic__add_discussion_entry(
+  issueId,
+  content: "## Test-policy (bevroren bij claim_issue — KBT-F442 / Regel E)\n\n| Niveau | Applicabiliteit | Minimum |\n|---|---|---|\n| Unit | Vereist | <N> |\n| Integration | Vereist | <N> |\n| E2E | Vereist | <N> |\n\n_N.v.t.-rationale (indien van toepassing per niveau):_ <reden ≥20 chars>",
+  entryType: "Decision"
+)
+```
+
+### 5F.6: Decision entry
 
 ```
 MCP: mcp__kanbantic__add_discussion_entry(
@@ -258,7 +284,21 @@ MCP: mcp__kanbantic__create_test_case(
 )
 ```
 
-### 5B.6: Decision entry
+### 5B.6: Test-policy declaratie (Regel E / KBT-F442)
+
+Declare the per-level test-policy for this Bug **before transitioning to Prepared**. Same rules as 5F.5 — defaults all three levels to Vereist/min=1; N.v.t. requires ≥20-char rationale.
+
+For bugs, the E2E level typically maps to the applicable stack from the issue's application (Playwright for UI-bugs, real-proxy for plugin-bugs, integration-style for API-bugs without UI surface).
+
+```
+MCP: mcp__kanbantic__add_discussion_entry(
+  issueId,
+  content: "## Test-policy (bevroren bij claim_issue — KBT-F442 / Regel E)\n\n| Niveau | Applicabiliteit | Minimum |\n|---|---|---|\n| Unit | Vereist | <N> |\n| Integration | Vereist | <N> |\n| E2E | Vereist | <N> |\n\n_N.v.t.-rationale (indien van toepassing per niveau):_ <reden ≥20 chars>",
+  entryType: "Decision"
+)
+```
+
+### 5B.7: Decision entry
 
 ```
 MCP: mcp__kanbantic__add_discussion_entry(
@@ -296,9 +336,21 @@ Backward compatibility: existing legacy-shape Epics keep working without restruc
 
 Same as Step 5F.1–5F.3 but applied at Epic scope (wider purpose, broader trade-offs). At the end of this dialogue you should have a clear list of capabilities the Epic must deliver — those become the **Features** in Step 5E.7.
 
-### 5E.4: Write Epic-level user stories, specs, test cases
+### 5E.4: Write Epic-level user stories and specs
 
-Same as Step 5F.4 but typically more specs and at least one user story per high-level capability.
+Write user stories and specifications at Epic scope — at least one user story per high-level capability and the requisite specs:
+
+```
+MCP: mcp__kanbantic__create_user_story(workspaceId, issueId, ...)
+MCP: mcp__kanbantic__create_specification(
+  workspaceId, category: "ProductRequirement" | "SystemRequirement" | "SecurityRequirement" | "Rule" | "Boundary",
+  title, content, extractedFromIssueId: issueId
+)
+```
+
+<HARD-GATE>
+Do **NOT** call `create_test_case` with the Epic's `issueId`. Test cases belong to the child Features, not the Epic. Each child Feature gets its own test cases when it is prepared (via `kanbantic-issue-triage` + `kanbantic-issue-prepare` on that Feature). Writing test cases on an Epic violates Regel A (KBT-E084 / KBT-F449) and produces untraceable coverage gaps that the review-gate cannot enforce.
+</HARD-GATE>
 
 ### 5E.5: Create implementation plan
 

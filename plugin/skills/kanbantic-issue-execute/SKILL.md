@@ -277,6 +277,42 @@ MCP: mcp__kanbantic__list_discussion_entries(issueId)
 
 Read existing tasks and discussion context. If no tasks exist yet, you'll create them during execution (Step 4B.1).
 
+### 3c: Load frozen test-policy (Feature / Bug only — Regel E / KBT-F442)
+
+From the discussion entries loaded in 3a, locate the entry whose content starts with:
+```
+## Test-policy (bevroren bij claim_issue — KBT-F442 / Regel E)
+```
+
+Parse the Markdown table to extract, per level (Unit / Integration / E2E):
+- **Applicability**: `Vereist` or `N.v.t.`
+- **Minimum**: integer (only meaningful when Vereist)
+- **N.v.t.-rationale**: the rationale text (only when N.v.t.)
+
+Store as `frozenPolicy`:
+```
+frozenPolicy = {
+  Unit:        { applicability: "Vereist"|"N.v.t.", min: N, reason: "..." },
+  Integration: { applicability: "Vereist"|"N.v.t.", min: N, reason: "..." },
+  E2E:         { applicability: "Vereist"|"N.v.t.", min: N, reason: "..." }
+}
+```
+
+**If no test-policy entry is found:**
+- Add a `Comment` discussion entry:
+  ```
+  MCP: mcp__kanbantic__add_discussion_entry(
+    issueId,
+    content: "⚠️ Geen test-policy Decision-entry gevonden op dit issue. Standaard: alle niveaus Vereist / minimum 1. Voeg een test-policy toe via kanbantic-issue-prepare (stap 5F.5 / 5B.6) om dit te corrigeren.",
+    entryType: "Comment"
+  )
+  ```
+- Default `frozenPolicy` to all three levels Vereist/min=1.
+
+<HARD-GATE>
+The `frozenPolicy` is **read-only** for execute. Do NOT call `update_test_policy` or `set_applicability` to loosen minima or switch a level to N.v.t. mid-flight. Any policy change requires reviewer approval via `SetApplicability(overrideReason: ≥20 chars)` — this is out of scope for the execute-skill.
+</HARD-GATE>
+
 ### 3b: Load Project Knowledge from Kanbantic
 
 ```
@@ -686,7 +722,10 @@ Load the Toolkit Skill content and execute the flow it describes:
 Review transition is allowed **only** when all of the following are true. If any condition fails, the issue stays `InProgress`, and the skill reports the failing condition to the user. NO "door-drukken".
 
 1. Every task on the issue has status `Done` or `Cancelled`.
-2. Every test case linked to the issue has status `Passed`.
+2. **Test-policy coverage** (Regel E / KBT-F442) — per the `frozenPolicy` loaded in Step 3c:
+   a. For each level with `Applicability = Vereist`: the count of test cases with status `Passed` at that level must be **≥ `frozenPolicy[level].min`**. A level with zero test cases fails this check even if no test cases have status `Failed` — missing coverage is a blocker, not just failing tests.
+   b. For each level with `Applicability = N.v.t.`: no minimum count is required; the N.v.t.-rationale in `frozenPolicy[level].reason` must be non-empty (verified at prepare time; warn if missing).
+   c. No test case at any level may have status `Failed` or `Blocked`.
 3. Readiness checks on the issue still pass (`isReadyToClaim` was true at claim time; re-check in case specs/test cases were added mid-flight).
 </HARD-GATE>
 

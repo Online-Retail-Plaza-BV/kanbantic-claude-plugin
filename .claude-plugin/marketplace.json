@@ -10,9 +10,9 @@
   "plugins": [
     {
       "name": "kanbantic-claude-plugin",
-      "version": "2.9.0",
+      "version": "2.10.0",
       "source": "./plugin",
-      "description": "Wireframe functionality added."
+      "description": "filePath parameter for large content in the MCP proxy (KBT-F464)."
     }
   ]
 }

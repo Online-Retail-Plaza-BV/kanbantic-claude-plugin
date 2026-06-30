@@ -1,82 +1,99 @@
-# Release Notes — v2.10.0 (KBT-E066 / KBT-F320)
+# Release Notes — v2.10.0 (KBT-F464)
 
-Completes the **version-aware plugin track** (Epic KBT-E066): F318 (version-aware
-skills), F319 (Version slash-commands) and F320 (registry-sync / lint / hooks /
-self-release). This is the **meta-release** — the plugin is the first Application
-published end-to-end through the new Version-flow.
+## `filePath` parameter for large content in the stdio proxy
 
-## known-mcp-tools.json — synced to the LIVE registry
+v2.10.0 lets a `tools/call` carry a local **`filePath`** instead of a large
+`content` string. The `kanbantic-mcp-proxy` runs locally with filesystem
+access, so it reads the file and substitutes its contents into `content`
+before forwarding to the Kanbantic MCP server — the model never has to load the
+file into its context.
 
-The proxy is transparent (KBT-B200), so the bundled snapshot must mirror the live
-MCP registry. After the F10 release→Version rename:
+The motivating case: `add_wireframe_version` takes a `content` string that for a
+real wireframe is easily 150KB+ of HTML. Passing that inline overflows the
+context window and the upload fails in practice. With `filePath`, Claude only
+names the path.
 
-- **Removed (4 legacy release-tools):** `create_release`, `list_releases`,
-  `update_release`, `get_release_notes`.
-- **Added (12 live Version-flow tools):** `create_version`, `list_versions`,
-  `update_version`, `freeze_version`, `mark_version_released`,
-  `preview_next_version`, `get_version_notes`, `app_version_at_date`,
-  `issue_version_lookup`, `version_audit_timeline`, `evaluate_rollout_readiness`,
-  `record_rollout_decision`.
-- The stale names from the F320 description that never shipped as MCP tools
-  (`assess_version_readiness`, `archive_version`, `add_affects_version`,
-  `get_application_version_at_date`, `get_version_timeline`,
-  `get_issue_deployment_info`, `get_roadmap_data`, `search_deployment_history`,
-  `remove_affects_version`) are deliberately **absent**.
+### Behavior
 
-## lint-skills.js — Invariant 5 (version-awareness)
+| Arguments | Proxy behavior |
+|---|---|
+| `content` only | forwarded byte-identical — unchanged from before |
+| `filePath` (no `content`) | file read via `fs.readFileSync(filePath, 'utf8')` → `content` filled, `filePath` removed, then forwarded |
+| `filePath` **and** non-empty `content` | JSON-RPC error **-32602** (ambiguity) — **not** forwarded; supply exactly one |
+| `filePath` unreadable / missing | JSON-RPC error **-32603** naming the path + OS reason (e.g. `ENOENT`) — **not** forwarded; the proxy does not crash |
+| neither | forwarded unchanged; the server validates its own required fields |
 
-A new invariant fails CI when any lane-skill SKILL.md carries a stale
-release-domain token: `releaseId`, `release_id`, the capital-cased whole word
-`Release`, or any removed release-tool name. A line may opt out with the
-`lint-skills-allow-release` marker (e.g. a documented GitHub Release in prose).
-Lowercase `release` in prose does not hard-fail (TC2360 design-choice).
+Substitution happens in `dispatch()` before `forward()`: on a mutation the
+re-serialized message is forwarded; otherwise the original line is forwarded
+verbatim (preserving byte-identical passthrough).
 
-## Two new zero-dependency hooks
+### Generic, not hardcoded (KBT-RL134)
 
-- **PreToolUse `pre-tool-use-locked-version-blocker.js`** — intercepts
-  `claim_issue`, resolves the issue's delivered-in Version via
-  `issue_version_lookup`, and **blocks** the claim when the Version is
-  locked-on-deploy (`lifecycleStatus` ≥ `StagingDeployed`, KBT-F458) with the
-  message `Locked Version <name> (status <status>); klaim niet toegestaan na
-  lock-on-deploy`. Fail-open on any infrastructure error (no API key, network,
-  unparseable response) so a malfunction never wedges a session.
-- **Stop `stop-version-summary.js`** — prints a one-line Version summary at
-  session-Stop from the proxy-maintained session-file
-  (`~/.claude-kanbantic-session.json` → `versionContext`):
-  `Version <name> voor <application> — <n> issues, status <status>, %done <n>%`.
-  Sessions with no Version context print nothing.
+- **Request-side:** the `filePath → content` substitution applies to *any*
+  `tools/call` with a non-empty `filePath`, regardless of tool name. No tool
+  allowlist — the server validates whether the tool accepts a `content` field.
+- **Response-side (`tools/list` augmentation):** the proxy enriches the
+  `tools/list` response so every tool whose `inputSchema` has a `content`
+  property also advertises an optional `filePath` string parameter (with a
+  description), and notes it in the tool description. `filePath` is never added
+  to `required`; tools without `content` are untouched. This is how the
+  proxy surfaces a documented parameter even though tool schemas are served by
+  the remote server (which the plugin cannot change server-side).
 
-Both are registered in `plugin/hooks/hooks.json` (`PreToolUse` matcher
-`mcp__.*__claim_issue`; `Stop`).
+A future content-bearing tool gains `filePath` support automatically — no proxy
+code change.
 
-## Version bump + lockstep (KBT-F454)
+### Trust boundary
 
-`plugin/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` and the
-root `package.json` are all bumped to **2.10.0** in lockstep. (The previously
-planned v2.6.0 had already shipped; the self-release target is re-pointed to the
-next MINOR per KBT-BD157.)
+`filePath` lets a tool call read any local file the proxy process can access and
+sends its contents to the server. That is the intended capability (the proxy
+runs locally with filesystem rights), but it means a mistaken or hostile call
+could read sensitive files. The proxy intentionally imposes no path allowlist or
+size cap — that remains the caller's responsibility. Compare the server-side
+`AddIssueAttachment` (KBT-SR224), which does cap at 25MB because it base64-encodes
+the payload into the protocol; the proxy substitution has no such overhead. An
+optional size guard in the proxy is a reasonable follow-up. Documented in the
+plugin README.
 
-## Self-release (KBT-TC2368, meta-contract)
+### Implementation
 
-The plugin is the first Application driven through the new Version-flow: a
-Version `v2.10.0` runs Planned → … → prod-deploy, after which the F6-handler
-auto-creates the GitHub Release `v2.10.0` in
-`Online-Retail-Plaza-BV/kanbantic-claude-plugin`. The GitHub-Release step is the
-downstream manual/E2E meta-test that runs after prod-deploy.
+- `plugin/proxy/kanbantic-mcp-proxy.js` — `resolveFilePathArgument()` (request)
+  and `augmentToolsListResponse()` (response); both property-driven. Runtime
+  startup (stdin + SIGINT/SIGTERM handlers) moved behind a
+  `require.main === module` guard, and the pure helpers are exported so unit
+  tests can `require()` the module without runtime side effects. The internal
+  proxy paths (Agent Communication Hub inbox-poll, override-governance flag,
+  graceful-exit) call `forward()` directly and bypass the substitution — those
+  paths are unaffected.
+- Zero new dependencies (Node built-ins only).
 
-## Test coverage
+### Test coverage
 
-- `plugin/tests/known-mcp-tools.test.js` — 12 added / 4 removed / stale-absent (TC2359).
-- `plugin/tests/lint-skills.test.js` — Invariant-5 positive + negative cases (TC2360).
-- `plugin/tests/locked-version-blocker.test.js` — block (StagingDeployed/Released),
-  allow (InProgress / non-claim), fail-open, + pure-helper units (TC2362).
-- `plugin/tests/stop-version-summary.test.js` — exact summary line + silent variants (TC2365).
+`plugin/tests/proxy-filepath.test.js` — 9 tests:
+- Unit (require the module): happy-path substitution, content-only/neither
+  passthrough, ambiguity (-32602), missing file (-32603 with path + ENOENT),
+  `augmentToolsListResponse` (optional `filePath`, not in `required`,
+  non-content tool untouched, idempotent, tolerant of malformed responses).
+- Integration / E2E (real proxy spawned against a stub backend): filePath read
+  end-to-end (backend receives `content`, never `filePath`); `tools/list`
+  augmentation; ambiguity error round-trips and is not forwarded.
 
-`node plugin/scripts/lint-skills.js` and `node plugin/scripts/check-bundle-tool-drift.js`
-are green; full `npm test` passes (the pre-existing `git-credential-helper.test.js`
-env-failure is unrelated).
+Full suite: **100 passed, 0 failed, 4 skipped** (the 4 skips are pre-existing
+and unrelated — 2 require a live sandbox, 2 are Windows SIGTERM/SIGINT signal
+tests covered via Docker per KBT-B195).
+
+## Also in this release
+
+This version number also captures **KBT-F465** — the new `kanbantic-bug-autopilot`
+skill (`/bug-autopilot`) — which merged to `main` without its own version bump.
+It processes one or more Kanbantic bug issues fully autonomously from their
+current status to Done, handling batches sequentially by priority, fetching the
+live workflow at runtime, and reporting per-bug results and a token breakdown by
+model.
 
 ### Target
 
-- Version: v2.10.0
-- Issue: KBT-F320 (Epic KBT-E066)
+- Issue: KBT-F464 (this release's headline); also includes KBT-F465
+- Application: Kanbantic Claude Code Plugin
+- Merged to main: 9076b21
+- Review: ApprovedWithComments (independent reviewer subagent)

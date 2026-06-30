@@ -4,7 +4,7 @@ Claude plugin for Kanbantic issue lifecycle management. All artifacts are create
 
 ## Skill ↔ Lane mapping (plugin v2.4.0)
 
-Three intake-skills create issues; four lane-skills move them through the eight statuses; deploy webhooks complete the journey to production.
+Three intake-skills create issues; four lane-skills move them through the eight statuses; deploy webhooks complete the journey to production. An autopilot skill drives bugs end-to-end without manual handoffs, and an orchestration skill sequences a whole initiative across the lane-skills.
 
 | Source lane | Target lane | Skill | Command | Mode |
 |-------------|-------------|-------|---------|------|
@@ -17,6 +17,10 @@ Three intake-skills create issues; four lane-skills move them through the eight 
 | InProgress | Review | `kanbantic-issue-execute` | (continues) | Lane-skill (implementation) |
 | Review | **InDeployment** | `kanbantic-issue-review` | *(auto via /loop-style chain)* | Lane-skill (merge + transition) |
 | InDeployment | Done | (deploy webhooks + manual `update_issue_status`) | — | Operational gate |
+| New *or* any lane | Done (batch) | `kanbantic-bug-autopilot` | `/bug-autopilot` | Autopilot (Bug, end-to-end) |
+| Initiative (many issues) | (drives all lanes) | `kanbantic-orchestrate` | `/kanbantic-orchestrate` (alias `/orchestrate`) | Orchestration (sequences triage→prepare→execute→review) |
+
+> **Orchestration vs lane-skills (KBT-F436).** `kanbantic-orchestrate` is a *sequencer*, not a lane-skill: given `{workspace, initiative, repos}` it selects actionable issues by priority, orders them, and invokes the matching lane-skill per issue. It owns no status transition and re-implements no claim/push/merge logic — those stay in `kanbantic-issue-execute` / `kanbantic-issue-review`. Workspaces override the prompt via a Toolkit **Skill** item with slug `kanbantic-orchestrate` (the workspace mirror wins over the plugin baseline; see the skill's "Workspace override" section). Scripted launch is documented under [Launching the orchestrator](#launching-the-orchestrator-kbt-f438).
 
 **Lane-flow** (8 statuses; `Cancelled` is terminal from any non-Done, non-InDeployment status):
 
@@ -116,6 +120,40 @@ claude --dangerously-load-development-channels server:kanbantic
 (Claude Code v2.1.80+ vereist; channels werken niet zonder deze flag.)
 
 Zonder de flag werken `register_agent_session` / `send_message` / `get_channel_messages` etc. nog steeds als gewone tools — maar de **push-richting** (user → agent) verloopt niet realtime. Polling vanuit de agent zelf via `check_messages` is mogelijk maar niet aanbevolen.
+
+## `filePath` — lokale bestandssubstitutie voor grote content (KBT-F464)
+
+De proxy draait lokaal met filesystem-toegang. Voor tools met een grote `content`-parameter (bijv. `add_wireframe_version` met een 154KB HTML-wireframe) hoeft Claude de inhoud niet langer in zijn context te laden: geef in plaats van `content` een **`filePath`** mee en de proxy resolvet het bestand vóór doorsturen.
+
+```jsonc
+// Claude roept aan:
+add_wireframe_version({
+  wireframeId: "3a221d1f-…",
+  filePath: "C:\\Users\\you\\Documents\\adminmeester-wireframes.html",
+  changesSummary: "Update nav + BTW schermen"
+})
+
+// De proxy substitueert vóór doorsturen naar de API:
+add_wireframe_version({
+  wireframeId: "3a221d1f-…",
+  content: "<html>…</html>",   // gelezen via fs.readFileSync(filePath, 'utf8')
+  changesSummary: "Update nav + BTW schermen"
+})
+```
+
+Gedrag (afgedwongen in `proxy/kanbantic-mcp-proxy.js`):
+
+| Argumenten | Proxy-gedrag |
+|---|---|
+| alleen `content` | byte-identiek doorgestuurd (ongewijzigd t.o.v. vroeger) |
+| `filePath` (geen `content`) | bestand lokaal gelezen → `content` gevuld, `filePath` verwijderd, dan doorgestuurd |
+| `filePath` **en** `content` | JSON-RPC-fout `-32602` (ambiguïteit) — **niet** doorgestuurd; geef precies één op |
+| `filePath` onleesbaar | JSON-RPC-fout `-32603` met pad + OS-reden (bijv. `ENOENT`) — **niet** doorgestuurd |
+| geen van beide | ongewijzigd doorgestuurd; de server valideert zelf |
+
+Het patroon is **generiek**: de substitutie geldt voor elke `tools/call` met een `filePath`-argument, niet alleen `add_wireframe_version`. De proxy verrijkt bovendien de `tools/list`-respons zodat `filePath` als optionele parameter (met beschrijving) verschijnt op elke tool die een `content`-property heeft — `filePath` wordt nooit aan `required` toegevoegd. Geen extra dependencies; alleen Node built-ins.
+
+> **Trust boundary.** `filePath` laat een tool-aanroep elk lokaal bestand lezen waartoe het proxy-proces toegang heeft, en stuurt de inhoud naar de Kanbantic-server. Dat is exact het doel (de proxy draait lokaal met filesystem-rechten), maar het betekent dat een foutieve of kwaadaardige tool-aanroep in principe gevoelige bestanden zou kunnen inlezen. Geef alleen `filePath`-waarden door die je bedoelt te uploaden. De proxy legt bewust géén pad-allowlist of groottelimiet op — dat blijft een verantwoordelijkheid van de aanroeper. (Vergelijk de server-side `AddIssueAttachment`, KBT-SR224, die wél een 25MB-cap hanteert omdat die de payload base64 in het protocol stopt; de proxy-substitutie heeft die overhead niet.)
 
 ## Requirements
 
@@ -241,6 +279,61 @@ If you'd rather avoid the hardcoded plugin-cache path (which changes with each p
 ```
 
 Caveats: the API key is embedded **literally** in the config (treat the file as a secret — don't commit or share it), and `cmd /c` is required on Windows so `npx.cmd` resolves correctly.
+
+## Launching the orchestrator (KBT-F438)
+
+`kanbantic-orchestrate` (see the [Skill ↔ Lane table](#skill--lane-mapping-plugin-v240)) can be started by hand, but a per-workstation launch script removes the repetitive setup: it resolves the API key the same way the proxy does, adds the channel flag, and seeds the session with the right `/kanbantic-orchestrate` invocation.
+
+> **Deferred boundary — read this first.** This script is a deliberate **bridge**, not the destination. The full **Workstation-Daemon `SpawnCommand` / Agent-Sessions integration** — a daemon that spawns and supervises orchestrator sessions automatically across workstations — is **intentionally deferred until the v0.14.0 line is mature** (see **KBT-BD151 / KBT-BD154**). Until that lands, an operator runs the launch script manually on each workstation that should participate in an autonomous run. The same caveat is repeated in the script header so it is visible at the call-site.
+
+### From manual launch to the script
+
+Previously each workstation was started by hand:
+
+```powershell
+$env:KANBANTIC_API_KEY = "ka_<agent>_<key>"   # if not already a User env var
+claude --dangerously-load-development-channels server:kanbantic
+# …then type: /kanbantic-orchestrate workspace=kanbantic initiative=KBT-INI033
+```
+
+`plugin/scripts/launch-orchestrator.ps1` (Windows-primary) collapses that into one call:
+
+```powershell
+pwsh -File plugin/scripts/launch-orchestrator.ps1 -Workspace kanbantic -Initiative KBT-INI033
+# optionally constrain to a subset of repos:
+pwsh -File plugin/scripts/launch-orchestrator.ps1 -Workspace kanbantic -Initiative KBT-INI033 -Repos kanbantic,kanbantic-claude-plugin
+```
+
+A POSIX counterpart for macOS/Linux workstations is `plugin/scripts/launch-orchestrator.sh`:
+
+```bash
+./plugin/scripts/launch-orchestrator.sh --workspace kanbantic --initiative KBT-INI033 [--repos a,b]
+```
+
+### Requirements
+
+- **Node.js** — the bundled MCP proxy runs as `node …` (see [Requirements](#requirements)).
+- **Claude Code on PATH** — the script launches `claude` (override with `-ClaudeExe` / `CLAUDE_EXE`). PowerShell 5.1+ or `pwsh` for the `.ps1`; `bash` for the `.sh`.
+- **A Kanbantic API key** — resolved env-first, then `HKCU\Environment` on Windows (the `.sh` variant is env-only; there is no registry on non-Windows hosts). Same resolution order as the proxy and the git-credential-helper.
+- **Proxy / network reachability** — the orchestrator's MCP calls go through the bundled stdio proxy to `https://kanbantic.com/mcp`; the workstation must be able to reach it.
+
+### What the script does
+
+1. Validates `-Workspace` and `-Initiative` (fail-fast, exit 2 if missing).
+2. Resolves `KANBANTIC_API_KEY`: environment → `HKCU\Environment` (Windows). If neither yields a key it **fails fast with a clear message and a non-zero exit (3) — Claude Code is never spawned** with a missing key.
+3. Propagates the resolved key into the child environment (so a registry-only key still reaches the proxy).
+4. Launches `claude --dangerously-load-development-channels server:kanbantic` with an initial `/kanbantic-orchestrate workspace=… initiative=… [repos=…]` prompt.
+
+`-DryRun` prints the resolved launch plan as a single JSON line (workspace, initiative, repos, `apiKeySource`, the `claude` args) and exits 0 **without** spawning — useful for verifying setup. The key value itself is never printed, only its presence and source.
+
+### Troubleshooting the launcher
+
+| Symptom | Cause / fix |
+|---|---|
+| `missing -Workspace` / `missing -Initiative` (exit 2) | Pass both parameters. |
+| `KANBANTIC_API_KEY not found … NOT started` (exit 3) | Set the User env var: `[Environment]::SetEnvironmentVariable('KANBANTIC_API_KEY','ka_<agent>_<key>','User')`, open a new terminal, retry. Verify with `reg query HKCU\Environment /v KANBANTIC_API_KEY`. |
+| `claude` not found | Install Claude Code / put it on PATH, or pass `-ClaudeExe <full-path>`. |
+| Channels don't push (user → agent) | Confirm Claude Code v2.1.80+ and that the `--dangerously-load-development-channels server:kanbantic` flag survived (the script always adds it). |
 
 ## Troubleshooting
 

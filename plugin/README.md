@@ -4,7 +4,7 @@ Claude plugin for Kanbantic issue lifecycle management. All artifacts are create
 
 ## Skill ↔ Lane mapping (plugin v2.4.0)
 
-Three intake-skills create issues; four lane-skills move them through the eight statuses; deploy webhooks complete the journey to production. An autopilot skill drives bugs end-to-end without manual handoffs.
+Three intake-skills create issues; four lane-skills move them through the eight statuses; deploy webhooks complete the journey to production. An autopilot skill drives bugs end-to-end without manual handoffs, and an orchestration skill sequences a whole initiative across the lane-skills.
 
 | Source lane | Target lane | Skill | Command | Mode |
 |-------------|-------------|-------|---------|------|
@@ -18,6 +18,9 @@ Three intake-skills create issues; four lane-skills move them through the eight 
 | Review | **InDeployment** | `kanbantic-issue-review` | *(auto via /loop-style chain)* | Lane-skill (merge + transition) |
 | InDeployment | Done | (deploy webhooks + manual `update_issue_status`) | — | Operational gate |
 | New *or* any lane | Done (batch) | `kanbantic-bug-autopilot` | `/bug-autopilot` | Autopilot (Bug, end-to-end) |
+| Initiative (many issues) | (drives all lanes) | `kanbantic-orchestrate` | `/kanbantic-orchestrate` (alias `/orchestrate`) | Orchestration (sequences triage→prepare→execute→review) |
+
+> **Orchestration vs lane-skills (KBT-F436).** `kanbantic-orchestrate` is a *sequencer*, not a lane-skill: given `{workspace, initiative, repos}` it selects actionable issues by priority, orders them, and invokes the matching lane-skill per issue. It owns no status transition and re-implements no claim/push/merge logic — those stay in `kanbantic-issue-execute` / `kanbantic-issue-review`. Workspaces override the prompt via a Toolkit **Skill** item with slug `kanbantic-orchestrate` (the workspace mirror wins over the plugin baseline; see the skill's "Workspace override" section). Scripted launch is documented under [Launching the orchestrator](#launching-the-orchestrator-kbt-f438).
 
 **Lane-flow** (8 statuses; `Cancelled` is terminal from any non-Done, non-InDeployment status):
 

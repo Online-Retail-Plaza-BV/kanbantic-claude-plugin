@@ -192,11 +192,11 @@ Before `claim_issue` (Step 2), verify the issue's Application has a **Planned** 
 1. Determine `issue.applicationId` from the `get_issue` response in Step 1. (Epics may be cross-application — gate on the Epic's primary `applicationId`; each child Feature carries — and is gated on — its own Application when it is sub-claimed in Step 4A.2-new.a.)
 2. Resolve Planned Versions for that Application:
    ```
-   MCP: list_versions(workspaceId)   // live version tool; filter to issue.applicationId + status == "Planned"
+   MCP: mcp__kanbantic__list_versions(workspaceId)   // live version tool; filter to issue.applicationId + status == "Planned"
    ```
 3. **No Planned Version for the Application** → STOP. Do **not** call `claim_issue` (no partial state — the issue stays on `Prepared` / `Triaged`). Fetch the suggested bump and report verbatim:
    ```
-   MCP: preview_next_version(applicationId: <issue.applicationId>)
+   MCP: mcp__kanbantic__preview_next_version(applicationId: <issue.applicationId>)
    // → { proposed, rationale, bumpLevel } — quote `proposed` as the recommended new Version
    ```
    > **Geen Planned Version voor Application `<X>`.** De claim is geblokkeerd (per F4 / KBT-RL145).

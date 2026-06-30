@@ -473,7 +473,7 @@ Re-inspect `readinessChecks` for the `Triaged → Prepared` transition. The `isR
 As an **informational, non-gating** check, verify the issue's Application has a **Planned** Version it can claim against. This is a heads-up for `kanbantic-issue-execute`, whose claim-gate (KBT-RL145) is the actual enforcement point.
 
 ```
-MCP: list_versions(workspaceId)   // live version tool; filter to issue.applicationId + status == "Planned"
+MCP: mcp__kanbantic__list_versions(workspaceId)   // live version tool; filter to issue.applicationId + status == "Planned"
 ```
 
 - **A Planned Version exists** and the issue already carries a `VersionId` of the **same** Application → report `Version: <name> ✓`.

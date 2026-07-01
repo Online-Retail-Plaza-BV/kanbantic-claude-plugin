@@ -62,19 +62,28 @@ Before starting, verify you have local access to the workspace's code repository
 
 1. Run `git remote -v` to check if you're in a git repository
 2. If already in the correct repository, skip to Step 1
-3. If no repository or wrong repository:
+3. **No git repo at all (Cowork/desktop, MCP-only run):** prepare reads the codebase only for context and never writes code. When there is no git repository in this environment, **skip the clone entirely** and proceed with MCP-only artifact work (specs, test cases, decisions). This is the context-aware path of the decision rule `shouldEnforceWorktreeGate` in `plugin/scripts/gate-context.js` (`hasGitRepo: false` → gate not enforced). Record the skip as a Comment discussion-entry (see Step 0.5), mirroring the `KANBANTIC_SKIP_GIT_SYNC` opt-out pattern.
+4. If no repository or wrong repository (and a repo IS available to clone):
    ```
    MCP: mcp__kanbantic__list_repositories(workspaceId)
    ```
    Pick the repo linked to the issue's `applicationId`, or the first active repository.
    ```
    MCP: mcp__kanbantic__get_repository(repositoryId)
-   MCP: mcp__kanbantic__get_repository_credential(repositoryId)
    ```
-   Then clone (read-only access is enough for prepare) and stay on the default branch:
+   Then clone via the bundled credential helper so the PAT is fetched just-in-time
+   and never persisted to `.git/config` or this transcript — do **not** embed the
+   token in the URL or call `get_repository_credential` yourself (see KBT-B330).
+   Read-only access is enough for prepare; stay on the default branch:
    ```bash
-   git clone https://<credential>@github.com/<org>/<repo>.git
+   HELPER="!node \"$CLAUDE_PLUGIN_ROOT/scripts/kanbantic-git-credential-helper.js\""
+   git clone \
+     -c credential.helper="$HELPER" \
+     -c kanbantic.repositoryId="<repositoryId>" \
+     https://github.com/<org>/<repo>.git
    cd <repo>
+   git config credential.helper "$HELPER"
+   git config kanbantic.repositoryId "<repositoryId>"
    git checkout main && git pull
    ```
 
@@ -82,10 +91,23 @@ Before starting, verify you have local access to the workspace's code repository
 Prepare does not create branches or commits. It only reads the codebase for context and writes to Kanbantic via MCP.
 </IMPORTANT>
 
-## Step 0.5: Worktree HARD-GATE
+## Step 0.5: Worktree HARD-GATE (context-aware)
 
 <HARD-GATE>
-Before any status-mutating or artifact-creating step, verify you are **not** in the main working tree. Agents often run in parallel on the same clone; prepare may write code instructions and temporary files — working in the main tree on a feature branch risks conflicts with other concurrent agents.
+This gate is **context-aware** per the decision rule `shouldEnforceWorktreeGate({ hasGitRepo, touchesFilesystem })` in `plugin/scripts/gate-context.js` (KBT-F447). Evaluate it first:
+
+- **No git repository in this environment** (`hasGitRepo: false` — Cowork/desktop, MCP-only run) → **skip the gate**. There is no main-tree/worktree distinction to protect.
+- **In a git repo but this is an MCP-only run** (`touchesFilesystem: false` — prepare only reads the codebase and writes Kanbantic artifacts via MCP, no branches/commits/temp files) → **skip the gate**.
+- **In a git repo and the run touches the filesystem/code** (`hasGitRepo: true && touchesFilesystem: true`) → **enforce the gate** (below).
+
+When you **skip** the gate, log it as a Comment discussion-entry — a mirror of the existing `KANBANTIC_SKIP_GIT_SYNC` opt-out pattern (KBT-F238):
+
+```
+MCP: mcp__kanbantic__add_discussion_entry(issueId, entryType: "Comment",
+  content: "Worktree HARD-GATE skipped: <no git repository in this environment | MCP-only run, no filesystem/code work>. Decision per shouldEnforceWorktreeGate (gate-context.js, KBT-F447). Mirrors the KANBANTIC_SKIP_GIT_SYNC opt-out.")
+```
+
+When the gate is **enforced**, verify you are **not** in the main working tree. Agents often run in parallel on the same clone; prepare may write code instructions and temporary files — working in the main tree on a feature branch risks conflicts with other concurrent agents.
 
 ```bash
 GIT_DIR=$(git rev-parse --git-dir)
@@ -100,9 +122,9 @@ fi
 
 `<ISSUE-CODE>` is the code of the issue this skill is processing (e.g. `KBT-F123`).
 
-**No opt-out, no override.** This is a working-tree safety check, not a readiness-artifact check. Working in the main tree is wrong even if the specific bullet reasons don't apply right now — parallel agents are the norm, not the exception.
+**No opt-out, no override on the enforced path.** Once the gate applies (real code work in a repo), it is a working-tree safety check, not a readiness-artifact check. Working in the main tree is wrong even if the specific bullet reasons don't apply right now — parallel agents are the norm, not the exception. The skip is permitted **only** for the no-repo / MCP-only paths above; it never weakens the code-in-a-repo path.
 
-If the check passes (paths differ → you are in a worktree), continue silently.
+If the gate is enforced and the check passes (paths differ → you are in a worktree), continue silently.
 </HARD-GATE>
 
 ## Step 1: Gate-check — Triaged
@@ -191,9 +213,35 @@ MCP: mcp__kanbantic__create_test_case(
 )
 ```
 
-Test-case test-levels should aim for Unit + Integration + E2E coverage where sensible — the Review → Done gate later enforces `Unit + Integration + E2E` diversity per `KBT-RL012`.
+Test-case test-levels should aim for Unit + Integration + E2E coverage where sensible.
 
-### 5F.5: Decision entry
+### 5F.5: Test-policy declaratie (Regel E / KBT-F442)
+
+Declare the per-level test-policy for this Feature **before transitioning to Prepared**. The physical database-freeze happens when `kanbantic-issue-execute` calls `claim_issue`, but the declaration must be captured now as a `Decision` entry so the executing agent and reviewer can both read it.
+
+Determine per level:
+
+| Niveau | Standaard | N.v.t.-uitzondering |
+|---|---|---|
+| **Unit** | Vereist / min 1 | Alleen als er nul logische code-paden zijn (bijv. puur data-migratie, DTO-only) |
+| **Integration** | Vereist / min 1 | Alleen bij pure client-side issues zonder service-/DB-aanroepen |
+| **E2E** | Vereist / min 1 (real-proxy voor plugin; Playwright voor UI) | Geen UI-oppervlak EN geen publieke API-oppervlak (pure domain-logica / parser / achtergrondtaak) |
+
+Rules:
+- Default alle drie niveaus naar **Vereist / minimum 1**.
+- N.v.t. vereist een **rationale van ≥20 chars** die verklaart waarom het niveau niet van toepassing is.
+- Zet **niet** alle drie op N.v.t. — minstens één niveau moet Vereist zijn.
+- Deze declaratie vervangt KBT-TRUL013 (opgeheven per KBT-F449).
+
+```
+MCP: mcp__kanbantic__add_discussion_entry(
+  issueId,
+  content: "## Test-policy (bevroren bij claim_issue — KBT-F442 / Regel E)\n\n| Niveau | Applicabiliteit | Minimum |\n|---|---|---|\n| Unit | Vereist | <N> |\n| Integration | Vereist | <N> |\n| E2E | Vereist | <N> |\n\n_N.v.t.-rationale (indien van toepassing per niveau):_ <reden ≥20 chars>",
+  entryType: "Decision"
+)
+```
+
+### 5F.6: Decision entry
 
 ```
 MCP: mcp__kanbantic__add_discussion_entry(
@@ -250,7 +298,21 @@ MCP: mcp__kanbantic__create_test_case(
 )
 ```
 
-### 5B.6: Decision entry
+### 5B.6: Test-policy declaratie (Regel E / KBT-F442)
+
+Declare the per-level test-policy for this Bug **before transitioning to Prepared**. Same rules as 5F.5 — defaults all three levels to Vereist/min=1; N.v.t. requires ≥20-char rationale.
+
+For bugs, the E2E level typically maps to the applicable stack from the issue's application (Playwright for UI-bugs, real-proxy for plugin-bugs, integration-style for API-bugs without UI surface).
+
+```
+MCP: mcp__kanbantic__add_discussion_entry(
+  issueId,
+  content: "## Test-policy (bevroren bij claim_issue — KBT-F442 / Regel E)\n\n| Niveau | Applicabiliteit | Minimum |\n|---|---|---|\n| Unit | Vereist | <N> |\n| Integration | Vereist | <N> |\n| E2E | Vereist | <N> |\n\n_N.v.t.-rationale (indien van toepassing per niveau):_ <reden ≥20 chars>",
+  entryType: "Decision"
+)
+```
+
+### 5B.7: Decision entry
 
 ```
 MCP: mcp__kanbantic__add_discussion_entry(
@@ -288,9 +350,21 @@ Backward compatibility: existing legacy-shape Epics keep working without restruc
 
 Same as Step 5F.1–5F.3 but applied at Epic scope (wider purpose, broader trade-offs). At the end of this dialogue you should have a clear list of capabilities the Epic must deliver — those become the **Features** in Step 5E.7.
 
-### 5E.4: Write Epic-level user stories, specs, test cases
+### 5E.4: Write Epic-level user stories and specs
 
-Same as Step 5F.4 but typically more specs and at least one user story per high-level capability.
+Write user stories and specifications at Epic scope — at least one user story per high-level capability and the requisite specs:
+
+```
+MCP: mcp__kanbantic__create_user_story(workspaceId, issueId, ...)
+MCP: mcp__kanbantic__create_specification(
+  workspaceId, category: "ProductRequirement" | "SystemRequirement" | "SecurityRequirement" | "Rule" | "Boundary",
+  title, content, extractedFromIssueId: issueId
+)
+```
+
+<HARD-GATE>
+Do **NOT** call `create_test_case` with the Epic's `issueId`. Test cases belong to the child Features, not the Epic. Each child Feature gets its own test cases when it is prepared (via `kanbantic-issue-triage` + `kanbantic-issue-prepare` on that Feature). Writing test cases on an Epic violates Regel A (KBT-E084 / KBT-F449) and produces untraceable coverage gaps that the review-gate cannot enforce.
+</HARD-GATE>
 
 ### 5E.5: Create implementation plan
 
@@ -326,7 +400,7 @@ For each Phase:
        title: "<capability name>",
        parentIssueId: <Epic ID>,
        applicationId: <Epic.applicationId>,
-       releaseId:    <Epic.releaseId>,
+       VersionId:    <Epic.VersionId>,
        initiativeId: <Epic.initiativeId>,
        priority: <inherits from Epic or set explicitly>,
        description: "<concrete scope of this Feature within the Epic>"
@@ -407,6 +481,18 @@ MCP: mcp__kanbantic__get_issue(issueId)
 ```
 
 Re-inspect `readinessChecks` for the `Triaged → Prepared` transition. The `isReadyToClaim` boolean on the DTO is now derived from `Status == Prepared` (KBT-SR266) — at this point it is still `false`; that flips to `true` after Step 6a transitions the issue.
+
+### 6.0: Version readiness — informational (KBT-F318 / KBT-RL144)
+
+As an **informational, non-gating** check, verify the issue's Application has a **Planned** Version it can claim against. This is a heads-up for `kanbantic-issue-execute`, whose claim-gate (KBT-RL145) is the actual enforcement point.
+
+```
+MCP: mcp__kanbantic__list_versions(workspaceId)   // live version tool; filter to issue.applicationId + status == "Planned"
+```
+
+- **A Planned Version exists** and the issue already carries a `VersionId` of the **same** Application → report `Version: <name> ✓`.
+- **A Planned Version exists** but the issue carries a `VersionId` of a **different** Application → warn (KBT-RL144 scope-mismatch); recommend re-running triage to fix the Version. Do **not** block the Prepared transition on this.
+- **No Planned Version** for the Application → warn: `ℹ️ Application <X> heeft nog geen Planned Version — kanbantic-issue-execute zal de claim blokkeren tot er één is (gebruik preview_next_version + create_version).` This is informational only; it does **not** stop the Prepared transition.
 
 ### 6a: All checks green — transition to Prepared
 

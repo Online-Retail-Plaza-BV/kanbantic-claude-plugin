@@ -76,15 +76,20 @@ let buf = '';
 const queue = [];
 let processing = false;
 
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (chunk) => {
-  buf += chunk;
-  drain();
-});
-process.stdin.on('end', () => {
-  stdinEnded = true;
-  if (!processing) gracefulExit(0);
-});
+// Only wire up stdin/stdout transport when run as a script. When the module is
+// require()'d (e.g. by unit tests for the pure helpers below) these side effects
+// must not fire. Runtime behavior as a CLI is unchanged.
+if (require.main === module) {
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => {
+    buf += chunk;
+    drain();
+  });
+  process.stdin.on('end', () => {
+    stdinEnded = true;
+    if (!processing) gracefulExit(0);
+  });
+}
 
 function drain() {
   let i;
@@ -141,12 +146,30 @@ async function dispatch(line) {
     return;
   }
 
+  // KBT-F464: resolve a filePath argument into content before forwarding. On an
+  // ambiguity / unreadable-file error, respond with a JSON-RPC error and do NOT
+  // forward. On success, the message's arguments are mutated in place and the
+  // re-serialized body is forwarded; an untouched message forwards verbatim.
+  const fp = resolveFilePathArgument(msg);
+  if (fp.error) {
+    if (msg.id != null) {
+      send({ jsonrpc: '2.0', error: fp.error, id: msg.id });
+    } else {
+      process.stderr.write(`[kanbantic-proxy] ${fp.error.message}\n`);
+    }
+    return;
+  }
+  const bodyToForward = fp.mutated ? JSON.stringify(msg) : line;
+
   try {
-    const responses = await forward(line);
+    const responses = await forward(bodyToForward);
     for (const r of responses) {
       postProcess(msg, r);
       send(r);
     }
+    // Side-effect (fire-and-forget): surface readiness-gate overrides so a second
+    // party can confirm them. Never blocks or alters the response above.
+    flagOverrideIfPresent(msg, responses).catch(() => {});
   } catch (err) {
     process.stderr.write(`[kanbantic-proxy] ${err.message}\n`);
     if (msg.id != null) {
@@ -199,6 +222,118 @@ function postProcess(request, response) {
     removeSessionFile();
     agentSessionId = null;
     agentChannelId = null;
+  }
+
+  // 4. KBT-F464: advertise `filePath` as an optional alternative to `content`
+  //    on every content-bearing tool in the tools/list response.
+  if (request.method === 'tools/list' && response.result) {
+    augmentToolsListResponse(response);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// filePath → content substitution (KBT-F464)
+//
+// The proxy runs locally with filesystem access, so it can resolve a large file
+// on disk into the `content` argument before forwarding — Claude never has to
+// load the file into its context. Generic: applies to ANY tools/call carrying a
+// `filePath` argument (KBT-RL134), not just add_wireframe_version.
+//
+//   - filePath absent / blank      → no-op, message forwarded verbatim (KBT-BD147)
+//   - filePath + non-empty content → ambiguity error, NOT forwarded (KBT-RL133)
+//   - filePath only                → read file, set content, drop filePath (KBT-PR279)
+//   - filePath unreadable           → clear error, NOT forwarded (KBT-SR481)
+//
+// Returns one of:
+//   { }                  — leave the message untouched (forward verbatim)
+//   { mutated: true }    — arguments rewritten in place (forward re-serialized)
+//   { error: {code,message} } — respond with this JSON-RPC error, do not forward
+// ---------------------------------------------------------------------------
+
+function resolveFilePathArgument(msg) {
+  if (!msg || msg.method !== 'tools/call' || !msg.params) return {};
+  const args = msg.params.arguments;
+  if (!args || typeof args !== 'object') return {};
+
+  const filePath = args.filePath;
+  if (typeof filePath !== 'string' || filePath.trim() === '') return {};
+
+  const toolName = msg.params.name || '(unknown tool)';
+
+  // Ambiguity: both a filePath and a non-empty content were supplied. Refuse
+  // rather than silently pick one — a silent precedence hides a caller mistake.
+  if (typeof args.content === 'string' && args.content.length > 0) {
+    return {
+      error: {
+        code: -32602,
+        message:
+          `Ambiguous arguments for tool '${toolName}': both 'filePath' and 'content' ` +
+          `were provided. Use exactly one — 'filePath' to have the proxy read the file ` +
+          `from disk, or 'content' to pass the value inline. The call was not forwarded.`,
+      },
+    };
+  }
+
+  let fileContent;
+  try {
+    fileContent = fs.readFileSync(filePath, 'utf8');
+  } catch (e) {
+    return {
+      error: {
+        code: -32603,
+        message:
+          `Failed to read filePath '${filePath}' for tool '${toolName}': ` +
+          `${e.code || e.name || 'Error'}: ${e.message}. The call was not forwarded.`,
+      },
+    };
+  }
+
+  args.content = fileContent;
+  delete args.filePath;
+  return { mutated: true };
+}
+
+// ---------------------------------------------------------------------------
+// tools/list augmentation (KBT-F464)
+//
+// Tool schemas are served by the remote MCP server; the plugin cannot change them
+// server-side. So the proxy enriches the tools/list response: every tool that
+// accepts a `content` argument also advertises an optional `filePath` alternative
+// (KBT-SR482). Generic — driven by the presence of a `content` property, never a
+// hardcoded tool list (KBT-RL134). `filePath` is never added to `required`.
+// ---------------------------------------------------------------------------
+
+const FILE_PATH_PROP_DESCRIPTION =
+  "Optional alternative to 'content': an absolute local file path. The " +
+  'kanbantic-mcp-proxy reads the file locally and substitutes its contents into ' +
+  "'content' before forwarding, so large files never enter the model's context. " +
+  "Provide either 'filePath' or 'content', not both.";
+
+function augmentToolsListResponse(response) {
+  const tools = response && response.result && response.result.tools;
+  if (!Array.isArray(tools)) return;
+
+  for (const tool of tools) {
+    const schema = tool && tool.inputSchema;
+    const props = schema && schema.properties;
+    if (!props || typeof props !== 'object') continue;
+    if (!props.content) continue;       // only content-bearing tools
+    if (props.filePath) continue;       // already advertised — don't clobber
+
+    props.filePath = { type: 'string', description: FILE_PATH_PROP_DESCRIPTION };
+
+    // Remove 'content' from required so Claude knows it may use filePath instead.
+    // Without this, Claude sees content as mandatory and fills it alongside filePath,
+    // which triggers the ambiguity guard in resolveFilePathArgument (KBT-B349).
+    if (Array.isArray(schema.required)) {
+      schema.required = schema.required.filter(r => r !== 'content');
+    }
+
+    if (typeof tool.description === 'string' && !tool.description.includes('filePath')) {
+      tool.description = tool.description.trimEnd() +
+        "\n\nTip: for large content you may pass 'filePath' (an absolute local path) " +
+        "instead of 'content'; the proxy reads the file locally so it never enters context.";
+    }
   }
 }
 
@@ -259,6 +394,75 @@ function parseToolResult(response) {
     return JSON.parse(text);
   } catch {
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Readiness-gate override governance flag
+//
+// `update_issue_status` and `claim_issue` accept an `overrideReason` that bypasses
+// a failing readiness gate under both Soft AND Hard enforcement. That escape hatch
+// is what let an entire initiative reach Done with no review-approval, no test
+// results, and no merged-branch record (the "skew" that motivated this guard).
+//
+// The proxy cannot — and should not — block the call (it is a transparent bridge,
+// and the authoritative fix belongs in the backend's IssueReadinessService). What
+// it CAN do, centrally for every agent on every workstation regardless of
+// workspace, is make each override visible for second-party review: it posts a
+// greppable Comment on the affected issue. The server already records a passive
+// Decision audit entry; this is the actionable, aggregatable governance flag.
+//
+// Opt out with KANBANTIC_SKIP_OVERRIDE_FLAG=1 (mirrors KANBANTIC_SKIP_GIT_SYNC).
+// ---------------------------------------------------------------------------
+
+const OVERRIDE_FLAG_TOOLS = new Set(['update_issue_status', 'claim_issue']);
+const OVERRIDE_FLAG_MARKER = '[override-governance]';
+
+async function flagOverrideIfPresent(request, responses) {
+  if (process.env.KANBANTIC_SKIP_OVERRIDE_FLAG === '1') return;
+  if (!request || request.method !== 'tools/call' || !request.params) return;
+
+  const name = request.params.name;
+  const args = request.params.arguments;
+  if (!OVERRIDE_FLAG_TOOLS.has(name)) return;
+  if (!args || typeof args.overrideReason !== 'string' || args.overrideReason.trim() === '') return;
+  if (!args.issueId) return;
+
+  // Only flag when the override actually succeeded — match the response by id.
+  const resp = Array.isArray(responses)
+    ? responses.find((r) => r && r.id === request.id)
+    : null;
+  const parsed = resp ? parseToolResult(resp) : null;
+  if (!parsed || parsed.success !== true) return;
+
+  const target = parsed.issueCode || args.issueId;
+  const action =
+    name === 'claim_issue'
+      ? 'claim (Prepared → InProgress)'
+      : `status change to "${args.status}"`;
+
+  const content =
+    `⚠️ **${OVERRIDE_FLAG_MARKER}** A readiness gate was bypassed via \`overrideReason\` ` +
+    `on a ${action}.\n\n` +
+    `**Override reason given:** ${args.overrideReason.trim()}\n\n` +
+    `**Why this is flagged:** an \`overrideReason\` lets a single agent pass a gate that ` +
+    `would otherwise block (e.g. All Tests Passed / Review Approved / Specs Approved / ` +
+    `Child Issues Done). Per separation-of-duties this transition should be confirmed by a ` +
+    `second party who did not perform the work. Search \`${OVERRIDE_FLAG_MARKER}\` to review ` +
+    `every proxy-flagged override.\n\n` +
+    `_Auto-flagged by kanbantic-mcp-proxy. Set \`KANBANTIC_SKIP_OVERRIDE_FLAG=1\` to disable._`;
+
+  try {
+    await callInternalTool('add_discussion_entry', {
+      issueId: target,
+      entryType: 'Comment',
+      content,
+    });
+    process.stderr.write(`[kanbantic-proxy] flagged readiness-gate override on ${target} (${name})\n`);
+  } catch (e) {
+    process.stderr.write(
+      `[kanbantic-proxy] failed to flag override on ${target}: ${e.message}\n`
+    );
   }
 }
 
@@ -478,11 +682,21 @@ async function gracefulExit(code) {
   process.exit(code);
 }
 
-process.on('SIGINT', () => {
-  process.stderr.write('[kanbantic-proxy] received SIGINT, shutting down\n');
-  gracefulExit(0);
-});
-process.on('SIGTERM', () => {
-  process.stderr.write('[kanbantic-proxy] received SIGTERM, shutting down\n');
-  gracefulExit(0);
-});
+if (require.main === module) {
+  process.on('SIGINT', () => {
+    process.stderr.write('[kanbantic-proxy] received SIGINT, shutting down\n');
+    gracefulExit(0);
+  });
+  process.on('SIGTERM', () => {
+    process.stderr.write('[kanbantic-proxy] received SIGTERM, shutting down\n');
+    gracefulExit(0);
+  });
+}
+
+// Exported for unit testing of the pure helpers (no runtime side effects on
+// require — see the `require.main === module` guards above). KBT-F464.
+module.exports = {
+  resolveFilePathArgument,
+  augmentToolsListResponse,
+  parseToolResult,
+};

@@ -44,15 +44,26 @@ Before starting, verify you have local access to the workspace's code repository
    If the issue has an `applicationId`, choose the repository linked to that application. Otherwise use the first active repository.
    ```
    MCP: mcp__kanbantic__get_repository(repositoryId)  // → includes cloneUrl, gitAuthorName, gitAuthorEmail
-   MCP: mcp__kanbantic__get_repository_credential(repositoryId)  // → PAT token for authentication
    ```
-   Then clone and configure:
+   Then clone and configure git to obtain the PAT **just-in-time** via the bundled
+   credential helper. Do **not** call `get_repository_credential` yourself and do
+   **not** embed the token in the clone URL — either path persists the secret
+   (into `.git/config`, shell history, the process list, or this transcript). The
+   helper feeds the token to git over stdin; see KBT-B330. Clone the **clean** URL:
    ```bash
-   git clone https://<credential>@github.com/<org>/<repo>.git
+   # Configure once, reuse for clone + the review's merge/push in this clone.
+   HELPER="!node \"$CLAUDE_PLUGIN_ROOT/scripts/kanbantic-git-credential-helper.js\""
+   git clone \
+     -c credential.helper="$HELPER" \
+     -c kanbantic.repositoryId="<repositoryId>" \
+     https://github.com/<org>/<repo>.git
    cd <repo>
+   git config credential.helper "$HELPER"          # persist (remote URL stays clean — no token)
+   git config kanbantic.repositoryId "<repositoryId>"
    git config user.name "<gitAuthorName>"
    git config user.email "<gitAuthorEmail>"
    ```
+   (PowerShell: identical `git config` keys; only shell quoting differs.)
 4. Ensure you're on the branch being reviewed (`git checkout <feature-branch>`)
 
 <IMPORTANT>
@@ -61,10 +72,27 @@ Before starting, verify you have local access to the workspace's code repository
 - If the repo is already cloned, ensure you're on the branch being reviewed before proceeding.
 </IMPORTANT>
 
-## Step 0.5: Worktree HARD-GATE
+## Step 0.5: Worktree HARD-GATE (context-aware)
 
 <HARD-GATE>
-Before any status-mutating, merge, or push step, verify you are **not** in the main working tree. Agents often run in parallel on the same clone; review performs `git merge --no-ff` and `git push origin main` — working in the main tree here risks overwriting concurrent changes or pushing unrelated state.
+This gate is **context-aware** per the decision rule `shouldEnforceWorktreeGate({ hasGitRepo, touchesFilesystem })` in `plugin/scripts/gate-context.js` (KBT-F447). Evaluate it first:
+
+- **No git repository in this environment** (`hasGitRepo: false` — Cowork/desktop, MCP-only run, or no repository configured per Step 0) → **skip the gate**. The review still runs against the spec + diff artifacts in Kanbantic; merge/push simply cannot and will not execute (warn the user, skip Step 7–8). There is no main-tree/worktree distinction to protect.
+- **In a git repo but this run is MCP-only** (`touchesFilesystem: false` — an artifact-only review with no merge/push) → **skip the gate**.
+- **In a git repo AND the run touches the filesystem/code** (`hasGitRepo: true && touchesFilesystem: true` — i.e. the review will `git merge --no-ff` / `git push origin main`) → **enforce the gate** (below).
+
+When you **skip** the gate, log it as a Comment discussion-entry — a mirror of the existing `KANBANTIC_SKIP_GIT_SYNC` opt-out pattern (KBT-F238):
+
+```
+MCP: mcp__kanbantic__add_discussion_entry(issueId, entryType: "Comment",
+  content: "Worktree HARD-GATE skipped: <no git repository in this environment | MCP-only review, no merge/push>. Decision per shouldEnforceWorktreeGate (gate-context.js, KBT-F447). Mirrors the KANBANTIC_SKIP_GIT_SYNC opt-out.")
+```
+
+<CRITICAL>
+The merge/push path is real code work in a repo. **Whenever a merge or push will run, the gate stays fully enforced — no opt-out, no override (KBT-BD155 scope boundary).** The relaxation above applies *only* to the no-repo / MCP-only-review paths; it must never weaken the merge-in-a-repo path (parallel-agent safety, KBT-TRUL004). If in doubt about whether a merge will run, enforce.
+</CRITICAL>
+
+When the gate is **enforced**, verify you are **not** in the main working tree. Agents often run in parallel on the same clone; review performs `git merge --no-ff` and `git push origin main` — working in the main tree here risks overwriting concurrent changes or pushing unrelated state.
 
 ```bash
 GIT_DIR=$(git rev-parse --git-dir)
@@ -79,9 +107,9 @@ fi
 
 `<ISSUE-CODE>` is the code of the issue this skill is reviewing (e.g. `KBT-F123`).
 
-**No opt-out, no override.** This is a working-tree safety check, not a readiness-artifact check. The merge step specifically re-enters the main branch to integrate; doing that from a worktree keeps the main clone untouched by the reviewer's local state.
+**No opt-out, no override on the enforced path.** This is a working-tree safety check, not a readiness-artifact check. The merge step specifically re-enters the main branch to integrate; doing that from a worktree keeps the main clone untouched by the reviewer's local state.
 
-If the check passes (paths differ → you are in a worktree), continue silently.
+If the gate is enforced and the check passes (paths differ → you are in a worktree), continue silently.
 </HARD-GATE>
 
 ## Step 1: Load Context
@@ -146,12 +174,19 @@ No opt-out, no override — the skill's scope is by definition Review → InDepl
 ```
 MCP: mcp__kanbantic__list_specifications(workspaceId)
 MCP: mcp__kanbantic__list_test_cases(workspaceId, issueId)
+MCP: mcp__kanbantic__list_discussion_entries(issueId)
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Rule")
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Pattern")
 MCP: mcp__kanbantic__list_toolkit_items(workspaceId, category: "Gotcha")
 ```
 
 Build a requirements checklist from specifications and test cases.
+
+**Version context (KBT-F318):** capture the issue's assigned Version so it can be surfaced in the merge-summary. From the `get_issue` response (Step 1) read `VersionId`; resolve its name + status via `list_versions(workspaceId)` (or `issue_version_lookup`). Store as `versionContext = { name, status, applicationName }`. If the issue has no Version, record `versionContext = "—"` (backlog). The Version name is shown in the merge commit message (Step 7) and the final report (Step 10).
+
+**Test-policy (Regel E / KBT-F442):** From the discussion entries, locate the entry whose content starts with `## Test-policy (bevroren bij claim_issue — KBT-F442 / Regel E)`. Parse the table to extract, per level (Unit / Integration / E2E): Applicability (`Vereist` / `N.v.t.`) + Minimum count + N.v.t.-rationale. Also count the actual `Passed` test cases per level from `list_test_cases`. Store as `frozenPolicy` with actual counts.
+
+If no test-policy entry is found for a Feature / Bug issue, treat all three levels as Vereist/min=1 and flag the absence as a Critical review issue (the prepare-step was incomplete).
 
 Include Rules, Patterns, and Gotchas in the review context — the reviewer should verify code adheres to project rules and follows established patterns.
 
@@ -306,6 +341,39 @@ If this is **not** the final approve, report:
 Then STOP. Do NOT proceed to Step 7/8/9.
 </HARD-GATE>
 
+## Step 6.5: Deferred-Cancel Scan (Epic final-approve only — KBT-F450)
+
+**Only runs when this is the final Epic-level approve (Step 6 → "Epic" path).** Skip for Feature-level, Phase-level, and Standalone-Feature/Bug reviews.
+
+Scan for cancelled child Features/Bugs that have deferred work without a tracked follow-up issue:
+
+```
+MCP: mcp__kanbantic__list_issues(workspaceId, parentIssueId: <epicId>, status: "Cancelled")
+```
+
+For each cancelled child where `followUpIssueId` is null:
+
+```
+MCP: mcp__kanbantic__list_discussion_entries(issueId: <childId>)
+```
+
+Look for a Decision-entry whose content contains any of these keywords (case-insensitive):  
+`deferred`, `vervolgwerk`, `follow-up`, `followup`, `uitgesteld`, `later`, `postponed`
+
+If a deferral keyword is found AND `followUpIssueId` is null → flag as a **Critical issue** in the reviewer output:
+
+```
+⚠️ UITGESTELD WERK ZONDER FOLLOW-UP — KBT-F450
+[childCode] ([childTitle]): geannuleerd met reden die uitstel aangeeft maar heeft geen follow-up issue gelinkt.
+Actie vereist (kies één):
+  A) Link een follow-up issue: update_issue_status(issueId: "[childCode]", status: "Cancelled", reason: "<reden>", followUpIssueId: "<id van follow-up issue>")
+  B) Override NoUntrackedDeferrals gate bij Epic-Done: update_issue_status(issueId: "[epicCode]", status: "Done", overrideReason: "<≥20-char reden waarom geen follow-up nodig is>")
+```
+
+This check mirrors the `NoUntrackedDeferrals` server-side readiness gate (KBT-F450). Surfacing it here before merge prevents the Done transition from failing after an otherwise-successful review.
+
+If no untracked deferrals are found → continue silently.
+
 ## Step 7: Merge + Push + Cleanup
 
 Execute the merge to main with a no-ff merge commit so the merge-historie zichtbaar blijft:
@@ -313,9 +381,11 @@ Execute the merge to main with a no-ff merge commit so the merge-historie zichtb
 ```bash
 git checkout main
 git pull origin main
-git merge --no-ff <feature-branch> -m "Merge <ISSUE-CODE>: <short summary>"
+git merge --no-ff <feature-branch> -m "Merge <ISSUE-CODE> (<versionContext.name>): <short summary>"
 git push origin main
 ```
+
+Include the Version name (`versionContext` from Step 1b) in the merge commit summary so the merge-historie ties the change to its version-milestone (KBT-F318). For a backlog issue (`versionContext == "—"`) omit the parenthetical.
 
 Then clean up the feature branch:
 
@@ -510,6 +580,7 @@ Report:
 
 **Summary:**
 - Verdict: APPROVE
+- Version: `<versionContext.name>` (`<versionContext.status>`) — or "— (backlog)"
 - Merged: `<feature-branch>` → `main` (`<merge commit sha>`)
 - Feature branch deleted (local + remote)
 - Knowledge: [N] toolkit items, [N] document impacts (or "none")

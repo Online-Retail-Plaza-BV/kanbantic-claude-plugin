@@ -22,7 +22,8 @@ This skill owns the **InProgress → Review** transition. It does NOT merge, clo
 ## Checklist
 
 1. **Gate-check** — verify issue is `Prepared` (preferred) or `Triaged` + ready to claim (legacy) (HARD GATE)
-2. **Claim issue** — atomically sets status to InProgress + records branch (single MCP call, KBT-RL052)
+1.5. **Version claim-gate** — issue's Application MUST have a Planned Version, else block the claim with a clear error + `preview_next_version` suggestion (HARD GATE, KBT-F318 / KBT-RL145)
+2. **Claim issue** — atomically sets status to InProgress + records branch (single MCP call, KBT-RL052); auto-assigns the Planned Version
 3. **Load plan + knowledge** — get phases/tasks AND project patterns from Kanbantic
 4. **Execute** — depends on issue type:
    - **Epic** (has Implementation Plan): execute per phase with per-phase push + review gates
@@ -49,15 +50,26 @@ Before starting, verify you have local access to the workspace's code repository
    If the issue has an `applicationId`, choose the repository linked to that application. Otherwise use the first active repository.
    ```
    MCP: mcp__kanbantic__get_repository(repositoryId)  // → includes cloneUrl, gitAuthorName, gitAuthorEmail
-   MCP: mcp__kanbantic__get_repository_credential(repositoryId)  // → PAT token for authentication
    ```
-   Then clone and configure:
+   Then clone and configure git to obtain the PAT **just-in-time** via the bundled
+   credential helper. Do **not** call `get_repository_credential` yourself and do
+   **not** embed the token in the clone URL — either path persists the secret
+   (into `.git/config`, shell history, the process list, or this transcript). The
+   helper feeds the token to git over stdin; see KBT-B330. Clone the **clean** URL:
    ```bash
-   git clone https://<credential>@github.com/<org>/<repo>.git
+   # Configure once, reuse for clone + every later fetch/push in this clone.
+   HELPER="!node \"$CLAUDE_PLUGIN_ROOT/scripts/kanbantic-git-credential-helper.js\""
+   git clone \
+     -c credential.helper="$HELPER" \
+     -c kanbantic.repositoryId="<repositoryId>" \
+     https://github.com/<org>/<repo>.git
    cd <repo>
+   git config credential.helper "$HELPER"          # persist (remote URL stays clean — no token)
+   git config kanbantic.repositoryId "<repositoryId>"
    git config user.name "<gitAuthorName>"
    git config user.email "<gitAuthorEmail>"
    ```
+   (PowerShell: identical `git config` keys; only shell quoting differs.)
 
 <IMPORTANT>
 - If no repository is configured in the workspace, skip this step and proceed — not all work requires code access.
@@ -65,10 +77,27 @@ Before starting, verify you have local access to the workspace's code repository
 - If the repo is already cloned, run `git pull` to get the latest code. Branch creation happens in Step 2.
 </IMPORTANT>
 
-## Step 0.5: Worktree HARD-GATE
+## Step 0.5: Worktree HARD-GATE (context-aware)
 
 <HARD-GATE>
-Before any status-mutating or code-changing step, verify you are **not** in the main working tree. Agents often run in parallel on the same clone; working in the main tree on a feature branch risks conflicts with other concurrent agents or manual commits.
+This gate is **context-aware** per the decision rule `shouldEnforceWorktreeGate({ hasGitRepo, touchesFilesystem })` in `plugin/scripts/gate-context.js` (KBT-F447). Evaluate it first:
+
+- **No git repository in this environment** (`hasGitRepo: false` — Cowork/desktop, MCP-only run, no repository configured per Step 0) → **skip the gate**. There is no main-tree/worktree distinction to protect.
+- **In a git repo but this run is MCP-only** (`touchesFilesystem: false` — the issue requires no code reads/writes, only Kanbantic-artifact work via MCP) → **skip the gate**.
+- **In a git repo AND the run touches the filesystem/code** (`hasGitRepo: true && touchesFilesystem: true`) → **enforce the gate** (below).
+
+When you **skip** the gate, log it as a Comment discussion-entry — a mirror of the existing `KANBANTIC_SKIP_GIT_SYNC` opt-out pattern (KBT-F238):
+
+```
+MCP: mcp__kanbantic__add_discussion_entry(issueId, entryType: "Comment",
+  content: "Worktree HARD-GATE skipped: <no git repository in this environment | MCP-only run, no filesystem/code work>. Decision per shouldEnforceWorktreeGate (gate-context.js, KBT-F447). Mirrors the KANBANTIC_SKIP_GIT_SYNC opt-out.")
+```
+
+<CRITICAL>
+Execute almost always writes code. **Whenever this run touches the filesystem/code in a repo, the gate stays fully enforced — no opt-out, no override (KBT-BD155 scope boundary).** The relaxation above applies *only* to the no-repo / MCP-only paths; it must never weaken the code-in-a-repo path. The strict worktree gate is the load-bearing parallel-agent-safety guarantee (KBT-TRUL004): two agents committing on the same main working tree corrupt each other's branches. If in doubt, treat the run as code-touching and enforce.
+</CRITICAL>
+
+When the gate is **enforced**, verify you are **not** in the main working tree. Agents often run in parallel on the same clone; working in the main tree on a feature branch risks conflicts with other concurrent agents or manual commits.
 
 ```bash
 GIT_DIR=$(git rev-parse --git-dir)
@@ -83,9 +112,9 @@ fi
 
 `<ISSUE-CODE>` is the code of the issue this skill is processing (e.g. `KBT-F123`).
 
-**No opt-out, no override.** This is a working-tree safety check, not a readiness-artifact check. Working in the main tree is wrong even if the specific bullet reasons don't apply right now — parallel agents are the norm, not the exception.
+**No opt-out, no override on the enforced path.** This is a working-tree safety check, not a readiness-artifact check. Working in the main tree is wrong even if the specific bullet reasons don't apply right now — parallel agents are the norm, not the exception.
 
-If the check passes (paths differ → you are in a worktree), continue silently.
+If the gate is enforced and the check passes (paths differ → you are in a worktree), continue silently.
 </HARD-GATE>
 
 ## Step 0.6: Sync check — base must not be stale vs origin (KBT-F238 / KBT-SR302)
@@ -118,6 +147,37 @@ Set `KANBANTIC_SKIP_GIT_SYNC=1` to skip the comparison entirely. Intended for CI
 
 `-DefaultAction Pull` is the default — when the local base is behind, the script rebases the feature-branch onto `origin/<default-branch>` automatically. Pass `Force` to log a Decision-entry and proceed without rebasing, or `Abort` to stop the skill. Interactive callers (a human running the skill from a terminal) should prompt the operator and pass the chosen action through.
 
+## Step 0.7: ABP license pre-flight — backend issues only (KBT-F263 / KBT-SR307 / KBT-RL066)
+
+For issues that touch the Kanbantic API or MCP host (anything that runs `dotnet run` on `Kanbantic.HttpApi.Host` or `Kanbantic.Mcp`), verify the ABP Pro license-runtime is satisfied **before** `claim_issue`. A stale `abp` CLI auth-token causes backend-startup to fail mid-flight with `ABP-LIC-ERROR — License check failed`, leaving an orphan `InProgress` claim that has to be cleaned up manually (see KBT-GTCH013, KBT-CMND007).
+
+```bash
+pwsh -NoProfile -File "$CLAUDE_PLUGIN_ROOT/hooks/abp-license-check.ps1" "<applicationSlug>" "<tagsCsv>" "$PWD"
+```
+
+Pass the issue's `applicationSlug` (from `get_issue`) and a comma-separated string of its `tags`. The hook's scope-gate runs the actual checks only for `kanbantic-api` / `kanbantic-mcp` or for any tags containing `backend` / `live-stack` — frontend-only and plugin-only work skips the check transparently.
+
+The script emits a single-line JSON result. Possible `action` values:
+
+| `action` | Meaning | Skill behavior |
+|---|---|---|
+| `ok` | env-var set, token present and fresh | continue silently |
+| `out-of-scope` | issue's application / tags do not require the ABP Pro license-runtime | continue silently |
+| `skipped-env` | `KANBANTIC_SKIP_ABP_CHECK=1` set | log a `Comment` discussion-entry recording the opt-out; continue |
+| `missing-env-var` | `ABP_LICENSE_CODE` not set on Process / User / Machine scope | STOP — add a `Decision` entry with `[Environment]::SetEnvironmentVariable('ABP_LICENSE_CODE','<your-license>','User')` fix instruction; do not call `claim_issue` |
+| `missing-token` | `$USERPROFILE\.abp\cli\access-token.bin` missing | STOP — Decision entry: run `abp login <username>` in a non-agent shell (interactive credentials) and restart |
+| `stale-token` | token `LastWriteTime` exceeds threshold (default 7 days) | STOP — Decision entry: token is `tokenAgeDays` old (threshold `thresholdDays`), re-run `abp login <username>` to refresh |
+
+After a FAIL (`missing-env-var` / `missing-token` / `stale-token`) the hook exits 1; the skill MUST stop here so the issue stays in `Prepared` / `Triaged`. Add the `Decision` discussion-entry from the rule-table above, then exit cleanly. The operator fixes the auth-state manually and re-invokes the skill.
+
+### Opt-out
+
+Set `KANBANTIC_SKIP_ABP_CHECK=1` to skip the check entirely. Intended for CI / headless contexts where backend startup is mocked, or for explicit operator override during incident-recovery. The skip is logged as a `Comment` discussion-entry so the audit trail stays complete (mirrors KBT-F238's `KANBANTIC_SKIP_GIT_SYNC` pattern).
+
+### Token-age threshold
+
+Default is 7 days. Override per session via env-var `KANBANTIC_ABP_TOKEN_MAX_AGE_DAYS=<int>`. Empirically a 10-day-old token is already enough to fail `dotnet run` (KBT-F257 incident, 2026-05-12); 7d gives a safety margin without being aggressive.
+
 ## Step 1: Gate-check — Prepared (preferred) or Triaged (legacy) + Ready to Claim
 
 Before claiming, verify the issue is in the right state and has the required artifacts:
@@ -140,6 +200,30 @@ Inspect the response:
 </HARD-GATE>
 
 This gate prevents execution of half-designed issues and couples this skill to the output of `kanbantic-issue-triage` + `kanbantic-issue-prepare`.
+
+## Step 1.5: Version claim-gate — Application must have a Planned Version (KBT-F318 / KBT-RL145, per F4)
+
+<HARD-GATE>
+Before `claim_issue` (Step 2), verify the issue's Application has a **Planned** Version. F4 requires every claimed issue to map to a Planned Version so the work is attributable to a concrete version-milestone. This gate runs **after** the Step 1 status gate-check and **before** the first state-mutating call.
+
+1. Determine `issue.applicationId` from the `get_issue` response in Step 1. (Epics may be cross-application — gate on the Epic's primary `applicationId`; each child Feature carries — and is gated on — its own Application when it is sub-claimed in Step 4A.2-new.a.)
+2. Resolve Planned Versions for that Application:
+   ```
+   MCP: mcp__kanbantic__list_versions(workspaceId)   // live version tool; filter to issue.applicationId + status == "Planned"
+   ```
+3. **No Planned Version for the Application** → STOP. Do **not** call `claim_issue` (no partial state — the issue stays on `Prepared` / `Triaged`). Fetch the suggested bump and report verbatim:
+   ```
+   MCP: mcp__kanbantic__preview_next_version(applicationId: <issue.applicationId>)
+   // → { proposed, rationale, bumpLevel } — quote `proposed` as the recommended new Version
+   ```
+   > **Geen Planned Version voor Application `<X>`.** De claim is geblokkeerd (per F4 / KBT-RL145).
+   > Maak eerst een Planned Version aan — `preview_next_version` stelt **`<proposed>`** voor (`<bumpLevel>`: `<rationale>`). Gebruik `create_version` (of het `/kanbantic-version-...` command) en her-invoke deze skill.
+
+   Add the block as a `Comment` discussion entry on the issue for the audit-trail, then exit cleanly.
+4. **A Planned Version exists** → continue to Step 2. `claim_issue` auto-assigns the issue to that Planned Version — no separate `update_issue(VersionId)` is needed.
+</HARD-GATE>
+
+**Tool note (LIVE registry, KBT-RL145):** the original scope named `assess_version_readiness`; that tool does **not** exist. The live check uses `list_versions` (for the Planned-check) + `preview_next_version` (for the suggested bump). Do **not** reference `assess_version_readiness`, `archive_version`, or `add/remove_affects_version`.
 
 ## Step 2: Claim Issue and Create Branch
 
@@ -234,6 +318,42 @@ MCP: mcp__kanbantic__list_discussion_entries(issueId)
 ```
 
 Read existing tasks and discussion context. If no tasks exist yet, you'll create them during execution (Step 4B.1).
+
+### 3c: Load frozen test-policy (Feature / Bug only — Regel E / KBT-F442)
+
+From the discussion entries loaded in 3a, locate the entry whose content starts with:
+```
+## Test-policy (bevroren bij claim_issue — KBT-F442 / Regel E)
+```
+
+Parse the Markdown table to extract, per level (Unit / Integration / E2E):
+- **Applicability**: `Vereist` or `N.v.t.`
+- **Minimum**: integer (only meaningful when Vereist)
+- **N.v.t.-rationale**: the rationale text (only when N.v.t.)
+
+Store as `frozenPolicy`:
+```
+frozenPolicy = {
+  Unit:        { applicability: "Vereist"|"N.v.t.", min: N, reason: "..." },
+  Integration: { applicability: "Vereist"|"N.v.t.", min: N, reason: "..." },
+  E2E:         { applicability: "Vereist"|"N.v.t.", min: N, reason: "..." }
+}
+```
+
+**If no test-policy entry is found:**
+- Add a `Comment` discussion entry:
+  ```
+  MCP: mcp__kanbantic__add_discussion_entry(
+    issueId,
+    content: "⚠️ Geen test-policy Decision-entry gevonden op dit issue. Standaard: alle niveaus Vereist / minimum 1. Voeg een test-policy toe via kanbantic-issue-prepare (stap 5F.5 / 5B.6) om dit te corrigeren.",
+    entryType: "Comment"
+  )
+  ```
+- Default `frozenPolicy` to all three levels Vereist/min=1.
+
+<HARD-GATE>
+The `frozenPolicy` is **read-only** for execute. Do NOT call `update_test_policy` or `set_applicability` to loosen minima or switch a level to N.v.t. mid-flight. Any policy change requires reviewer approval via `SetApplicability(overrideReason: ≥20 chars)` — this is out of scope for the execute-skill.
+</HARD-GATE>
 
 ### 3b: Load Project Knowledge from Kanbantic
 
@@ -644,7 +764,10 @@ Load the Toolkit Skill content and execute the flow it describes:
 Review transition is allowed **only** when all of the following are true. If any condition fails, the issue stays `InProgress`, and the skill reports the failing condition to the user. NO "door-drukken".
 
 1. Every task on the issue has status `Done` or `Cancelled`.
-2. Every test case linked to the issue has status `Passed`.
+2. **Test-policy coverage** (Regel E / KBT-F442) — per the `frozenPolicy` loaded in Step 3c:
+   a. For each level with `Applicability = Vereist`: the count of test cases with status `Passed` at that level must be **≥ `frozenPolicy[level].min`**. A level with zero test cases fails this check even if no test cases have status `Failed` — missing coverage is a blocker, not just failing tests.
+   b. For each level with `Applicability = N.v.t.`: no minimum count is required; the N.v.t.-rationale in `frozenPolicy[level].reason` must be non-empty (verified at prepare time; warn if missing).
+   c. No test case at any level may have status `Failed` or `Blocked`.
 3. Readiness checks on the issue still pass (`isReadyToClaim` was true at claim time; re-check in case specs/test cases were added mid-flight).
 </HARD-GATE>
 
